@@ -600,36 +600,36 @@
         this.knockbackVX = 0;
         this.knockbackVY = 0;
 
-        this.width = 33;     // 44 * 0.75 (25% smaller)
-        this.height = 30;    // 40 * 0.75
-        this.hitRadius = 18; // 24 * 0.75
+        this.width = ENEMY_CFG.width;
+        this.height = ENEMY_CFG.height;
+        this.hitRadius = ENEMY_CFG.hitRadius;
 
-        this.maxHealthQuarters = 4;
+        this.maxHealthQuarters = ENEMY_CFG.maxHealthQuarters;
         this.healthQuarters = this.maxHealthQuarters;
         this.alive = true;
 
         this.state = "stalk";
-        this.chargeTriggerDistance = 75;
-        this.windupDuration = 0.57;
-        this.chargeDuration = 0.256;
-        this.recoverDuration = 0.3;
-        this.postAttackCooldownDuration = 0.75;
+        this.chargeTriggerDistance = ENEMY_CFG.chargeTriggerDistance;
+        this.windupDuration = ENEMY_CFG.windupDuration;
+        this.chargeDuration = ENEMY_CFG.chargeDuration;
+        this.recoverDuration = ENEMY_CFG.recoverDuration;
+        this.postAttackCooldownDuration = ENEMY_CFG.postAttackCooldownDuration;
         this.windupTimer = 0;
         this.chargeTimer = 0;
         this.recoverTimer = 0;
         this.postAttackCooldownTimer = 0;
         this.chargeDirection = { x: 0, y: 0 };
 
-        this.stalkSpeed = 36;
-        this.chargeSpeed = 560;
+        this.stalkSpeed = ENEMY_CFG.stalkSpeed;
+        this.chargeSpeed = ENEMY_CFG.chargeSpeed;
         this.waddleTime = 0;
         this.hitCooldown = 0;
         this.hitFlashTimer = 0;
         this.stunTimer = 0;
-        this.stunDuration = 0.32;
+        this.stunDuration = ENEMY_CFG.stunDuration;
         this.lastHitByActionId = null;
         this.rollAngle = 0;
-        this.chargeSpinAmount = TAU * 1.4;
+        this.chargeSpinAmount = ENEMY_CFG.chargeSpinAmount;
         this.chargeElapsed = 0;
         this.trail = [];
         this.trailSpawnTimer = 0;
@@ -640,16 +640,35 @@
           return;
         }
 
+        this.cachePreviousTransform();
+        this.updateTimers(dt);
+        this.ageTrail(dt);
+
+        const toPlayer = Vec2.sub({ x: player.x, y: player.y }, { x: this.x, y: this.y });
+        const playerDistance = Vec2.length(toPlayer);
+        const toPlayerDir = playerDistance > EPSILON ? Vec2.mul(toPlayer, 1 / playerDistance) : { x: 0, y: 0 };
+
+        this.updateState(dt, playerDistance, toPlayerDir);
+        this.applyKnockbackDamping(dt);
+        this.integratePosition(dt);
+        this.clampToPlayfield();
+      }
+
+      cachePreviousTransform() {
         this.prevX = this.x;
         this.prevY = this.y;
         this.prevRollAngle = this.rollAngle;
+      }
 
+      updateTimers(dt) {
         this.waddleTime += dt;
         this.hitCooldown = Math.max(0, this.hitCooldown - dt);
         this.hitFlashTimer = Math.max(0, this.hitFlashTimer - dt);
         this.stunTimer = Math.max(0, this.stunTimer - dt);
         this.postAttackCooldownTimer = Math.max(0, this.postAttackCooldownTimer - dt);
+      }
 
+      ageTrail(dt) {
         for (let i = this.trail.length - 1; i >= 0; i -= 1) {
           const sample = this.trail[i];
           sample.age += dt;
@@ -657,86 +676,113 @@
             this.trail.splice(i, 1);
           }
         }
+      }
 
-        const toPlayer = Vec2.sub({ x: player.x, y: player.y }, { x: this.x, y: this.y });
-        const playerDistance = Vec2.length(toPlayer);
-        const toPlayerDir = playerDistance > 1e-5 ? Vec2.mul(toPlayer, 1 / playerDistance) : { x: 0, y: 0 };
-
+      updateState(dt, playerDistance, toPlayerDir) {
         if (this.stunTimer > 0) {
           this.vx = 0;
           this.vy = 0;
           this.rollAngle = 0;
-        } else if (this.state === "stalk") {
-          this.vx = toPlayerDir.x * this.stalkSpeed;
-          this.vy = toPlayerDir.y * this.stalkSpeed;
-          this.rollAngle = 0;
-          if (playerDistance <= this.chargeTriggerDistance && this.postAttackCooldownTimer <= 0) {
-            this.state = "windup";
-            this.windupTimer = this.windupDuration;
-            this.chargeDirection = toPlayerDir;
-            if (Vec2.length(this.chargeDirection) <= 1e-7) {
-              this.chargeDirection = { x: 0, y: 1 };
-            }
-            this.vx = 0;
-            this.vy = 0;
-          }
-        } else if (this.state === "windup") {
-          this.vx = 0;
-          this.vy = 0;
-          this.rollAngle = 0;
-          this.windupTimer -= dt;
-          if (this.windupTimer <= 0) {
-            this.state = "charge";
-            this.chargeTimer = this.chargeDuration;
-            this.chargeElapsed = 0;
-            const spinSign = this.chargeDirection.x >= 0 ? 1 : -1;
-            this.chargeSpinAmount = TAU * 1.4 * spinSign;
-          }
-        } else if (this.state === "charge") {
-          this.vx = this.chargeDirection.x * this.chargeSpeed;
-          this.vy = this.chargeDirection.y * this.chargeSpeed;
-          this.chargeElapsed += dt;
-          const chargeT = clamp(this.chargeElapsed / this.chargeDuration, 0, 1);
-          this.rollAngle = this.chargeSpinAmount * easeOutCubic(chargeT);
-          this.trailSpawnTimer += dt;
-          while (this.trailSpawnTimer >= 0.016) {
-            this.trailSpawnTimer -= 0.016;
-            this.trail.push({
-              x: this.x,
-              y: this.y,
-              angle: this.rollAngle,
-              age: 0,
-              life: 0.34,
-              alpha: 0.24
-            });
-            if (this.trail.length > 36) {
-              this.trail.shift();
-            }
-          }
-          this.chargeTimer -= dt;
-          if (this.chargeTimer <= 0) {
-            this.state = "recover";
-            this.recoverTimer = this.recoverDuration;
-            this.postAttackCooldownTimer = this.postAttackCooldownDuration;
-          }
-        } else if (this.state === "recover") {
-          const damp = Math.max(0, 1 - dt * 10);
-          this.vx *= damp;
-          this.vy *= damp;
-          this.rollAngle = 0;
-          this.recoverTimer -= dt;
-          if (this.recoverTimer <= 0) {
-            this.state = "stalk";
-          }
+          return;
         }
 
-        const knockbackDamp = Math.max(0, 1 - dt * 7);
+        if (this.state === "stalk") {
+          this.updateStalkState(playerDistance, toPlayerDir);
+        } else if (this.state === "windup") {
+          this.updateWindupState(dt);
+        } else if (this.state === "charge") {
+          this.updateChargeState(dt);
+        } else if (this.state === "recover") {
+          this.updateRecoverState(dt);
+        }
+      }
+
+      updateStalkState(playerDistance, toPlayerDir) {
+        this.vx = toPlayerDir.x * this.stalkSpeed;
+        this.vy = toPlayerDir.y * this.stalkSpeed;
+        this.rollAngle = 0;
+        if (playerDistance <= this.chargeTriggerDistance && this.postAttackCooldownTimer <= 0) {
+          this.state = "windup";
+          this.windupTimer = this.windupDuration;
+          this.chargeDirection = toPlayerDir;
+          if (Vec2.length(this.chargeDirection) <= EPSILON) {
+            this.chargeDirection = { x: ENEMY_CFG.defaultChargeDirection.x, y: ENEMY_CFG.defaultChargeDirection.y };
+          }
+          this.vx = 0;
+          this.vy = 0;
+        }
+      }
+
+      updateWindupState(dt) {
+        this.vx = 0;
+        this.vy = 0;
+        this.rollAngle = 0;
+        this.windupTimer -= dt;
+        if (this.windupTimer <= 0) {
+          this.state = "charge";
+          this.chargeTimer = this.chargeDuration;
+          this.chargeElapsed = 0;
+          const spinSign = this.chargeDirection.x >= 0 ? 1 : -1;
+          this.chargeSpinAmount = ENEMY_CFG.chargeSpinAmount * spinSign;
+        }
+      }
+
+      updateChargeState(dt) {
+        this.vx = this.chargeDirection.x * this.chargeSpeed;
+        this.vy = this.chargeDirection.y * this.chargeSpeed;
+        this.chargeElapsed += dt;
+        const chargeT = clamp(this.chargeElapsed / this.chargeDuration, 0, 1);
+        this.rollAngle = this.chargeSpinAmount * easeOutCubic(chargeT);
+        this.spawnChargeTrail(dt);
+        this.chargeTimer -= dt;
+        if (this.chargeTimer <= 0) {
+          this.state = "recover";
+          this.recoverTimer = this.recoverDuration;
+          this.postAttackCooldownTimer = this.postAttackCooldownDuration;
+        }
+      }
+
+      spawnChargeTrail(dt) {
+        this.trailSpawnTimer += dt;
+        while (this.trailSpawnTimer >= ENEMY_CFG.chargeTrailInterval) {
+          this.trailSpawnTimer -= ENEMY_CFG.chargeTrailInterval;
+          this.trail.push({
+            x: this.x,
+            y: this.y,
+            angle: this.rollAngle,
+            age: 0,
+            life: ENEMY_CFG.chargeTrailLife,
+            alpha: ENEMY_CFG.chargeTrailAlpha
+          });
+          if (this.trail.length > ENEMY_CFG.maxTrailSamples) {
+            this.trail.shift();
+          }
+        }
+      }
+
+      updateRecoverState(dt) {
+        const damp = Math.max(0, 1 - dt * ENEMY_CFG.recoverDampingRate);
+        this.vx *= damp;
+        this.vy *= damp;
+        this.rollAngle = 0;
+        this.recoverTimer -= dt;
+        if (this.recoverTimer <= 0) {
+          this.state = "stalk";
+        }
+      }
+
+      applyKnockbackDamping(dt) {
+        const knockbackDamp = Math.max(0, 1 - dt * ENEMY_CFG.knockbackDampingRate);
         this.knockbackVX *= knockbackDamp;
         this.knockbackVY *= knockbackDamp;
+      }
 
+      integratePosition(dt) {
         this.x += (this.vx + this.knockbackVX) * dt;
         this.y += (this.vy + this.knockbackVY) * dt;
+      }
 
+      clampToPlayfield() {
         const halfW = this.width * 0.5;
         const halfH = this.height * 0.5;
         if (this.entering) {
@@ -751,98 +797,121 @@
       }
 
       isOverlappingPlayer(player) {
-        const combatReach = Math.max(player.width, player.height) * 0.38 + this.hitRadius;
+        const combatReach = Math.max(player.width, player.height) * ENEMY_CFG.combatReachPlayerFactor + this.hitRadius;
         const dx = this.x - player.x;
         const dy = this.y - player.y;
         return dx * dx + dy * dy <= combatReach * combatReach;
       }
 
       onPlayerContact(player, game) {
+        if (!this.canReceiveChargedHit(player)) {
+          return;
+        }
+
+        const awayFromHit = this.getAwayFromHitDirection(player);
+        this.applyChargedHit(player, awayFromHit);
+        const hitX = (this.x + player.x) * 0.5;
+        const hitY = (this.y + player.y) * 0.5;
+        this.spawnChargedHitEffects(game, hitX, hitY, awayFromHit);
+
+        if (this.healthQuarters <= 0) {
+          this.handleDeath(game);
+        }
+      }
+
+      canReceiveChargedHit(player) {
         if (!this.alive || !player.action || !this.isOverlappingPlayer(player)) {
-          return;
+          return false;
         }
-
         if (player.action.type === "dodge") {
-          return;
+          return false;
         }
-
         if (player.action.type !== "charged" || this.hitCooldown > 0) {
-          return;
+          return false;
         }
         if (this.lastHitByActionId === player.action.id) {
-          return;
+          return false;
         }
+        return true;
+      }
 
+      getAwayFromHitDirection(player) {
         let awayFromHit = Vec2.sub({ x: this.x, y: this.y }, { x: player.x, y: player.y });
         awayFromHit = Vec2.normalize(awayFromHit);
-        if (Vec2.length(awayFromHit) <= 1e-7) {
-          awayFromHit = player.action.direction || { x: 0, y: 1 };
+        if (Vec2.length(awayFromHit) <= EPSILON) {
+          return player.action.direction || { x: ENEMY_CFG.defaultChargeDirection.x, y: ENEMY_CFG.defaultChargeDirection.y };
         }
+        return awayFromHit;
+      }
 
+      applyChargedHit(player, awayFromHit) {
         this.healthQuarters = Math.max(0, this.healthQuarters - 1);
         this.lastHitByActionId = player.action.id;
-        this.hitFlashTimer = 0.09;
-        this.hitCooldown = 0.16;
+        this.hitFlashTimer = ENEMY_CFG.hitFlashDuration;
+        this.hitCooldown = ENEMY_CFG.hitCooldownDuration;
         this.stunTimer = this.stunDuration;
         this.state = "recover";
         this.recoverTimer = this.recoverDuration;
+        this.knockbackVX += awayFromHit.x * ENEMY_CFG.knockbackImpulse;
+        this.knockbackVY += awayFromHit.y * ENEMY_CFG.knockbackImpulse;
+      }
 
-        const knockbackImpulse = 520;
-        this.knockbackVX += awayFromHit.x * knockbackImpulse;
-        this.knockbackVY += awayFromHit.y * knockbackImpulse;
-
-        const hitX = (this.x + player.x) * 0.5;
-        const hitY = (this.y + player.y) * 0.5;
-
-        game.particles.emit(hitX, hitY, 12, {
+      spawnChargedHitEffects(game, hitX, hitY, awayFromHit) {
+        game.particles.emit(hitX, hitY, FX_CFG.hitParticleCount, {
           baseAngle: Math.atan2(awayFromHit.y, awayFromHit.x),
-          spread: Math.PI * 0.8,
-          minSpeed: 180, maxSpeed: 420,
-          minLife: 0.15, maxLife: 0.35,
-          minSize: 3, maxSize: 7,
-          colors: ["#ffffff", "#ffffaa", "#ffdd66"],
-          drag: 5
+          spread: FX_CFG.hitParticleSpread,
+          minSpeed: FX_CFG.hitParticleMinSpeed,
+          maxSpeed: FX_CFG.hitParticleMaxSpeed,
+          minLife: FX_CFG.hitParticleMinLife,
+          maxLife: FX_CFG.hitParticleMaxLife,
+          minSize: FX_CFG.hitParticleMinSize,
+          maxSize: FX_CFG.hitParticleMaxSize,
+          colors: FX_CFG.hitParticleColors,
+          drag: FX_CFG.hitParticleDrag
         });
 
         game.flashRings.push({
           x: hitX, y: hitY,
-          maxRadius: 80,
+          maxRadius: FX_CFG.hitRingRadius,
           age: 0,
-          life: 0.25,
+          life: FX_CFG.hitRingLife,
           type: "shockwave"
         });
 
-        game.triggerShake(6, 0.15);
-        game.triggerHitstop(0.05);
-        game.triggerTimeSlow(0.3, 0.15);
+        game.triggerShake(FX_CFG.hitShake.intensity, FX_CFG.hitShake.duration);
+        game.triggerHitstop(FX_CFG.hitstopDuration);
+        game.triggerTimeSlow(FX_CFG.hitTimeSlow.duration, FX_CFG.hitTimeSlow.minScale);
+      }
 
-        if (this.healthQuarters <= 0) {
-          this.alive = false;
+      handleDeath(game) {
+        this.alive = false;
 
-          game.triggerShake(14, 0.3);
-          game.triggerHitstop(0.12);
-          game.triggerTimeSlow(0.55, 0.06);
+        game.triggerShake(FX_CFG.deathShake.intensity, FX_CFG.deathShake.duration);
+        game.triggerHitstop(FX_CFG.deathHitstopDuration);
+        game.triggerTimeSlow(FX_CFG.deathTimeSlow.duration, FX_CFG.deathTimeSlow.minScale);
 
-          game.flashRings.push({
-            x: this.x, y: this.y,
-            maxRadius: 120,
-            age: 0,
-            life: 0.4,
-            type: "deathFlash"
-          });
+        game.flashRings.push({
+          x: this.x, y: this.y,
+          maxRadius: FX_CFG.deathRingRadius,
+          age: 0,
+          life: FX_CFG.deathRingLife,
+          type: "deathFlash"
+        });
 
-          game.particles.emit(this.x, this.y, 24, {
-            baseAngle: 0,
-            spread: TAU,
-            minSpeed: 100, maxSpeed: 350,
-            minLife: 0.3, maxLife: 0.6,
-            minSize: 4, maxSize: 10,
-            colors: ["#d62222", "#ff4444", "#ff8800", "#ffaa22"],
-            drag: 3
-          });
+        game.particles.emit(this.x, this.y, FX_CFG.deathParticleCount, {
+          baseAngle: 0,
+          spread: TAU,
+          minSpeed: FX_CFG.deathParticleMinSpeed,
+          maxSpeed: FX_CFG.deathParticleMaxSpeed,
+          minLife: FX_CFG.deathParticleMinLife,
+          maxLife: FX_CFG.deathParticleMaxLife,
+          minSize: FX_CFG.deathParticleMinSize,
+          maxSize: FX_CFG.deathParticleMaxSize,
+          colors: FX_CFG.deathParticleColors,
+          drag: FX_CFG.deathParticleDrag
+        });
 
-          game.rainbowParticles.emit(this.x, this.y, 150 + Math.floor(Math.random() * 51));
-        }
+        game.rainbowParticles.emit(this.x, this.y, FX_CFG.rainbowMinCount + Math.floor(Math.random() * FX_CFG.rainbowExtraCount));
       }
 
       checkDamageToPlayer(player, game) {
@@ -1429,7 +1498,7 @@
         this.enemy.chargeDirection = { x: 0, y: 1 };
         this.enemy.chargeTimer = this.enemy.chargeDuration;
         this.enemy.chargeElapsed = 0;
-        this.enemy.chargeSpinAmount = TAU * 1.4;
+        this.enemy.chargeSpinAmount = ENEMY_CFG.chargeSpinAmount;
         this.enemy.healthQuarters = 1;
 
         this.lastTimestamp = 0;
@@ -1563,23 +1632,40 @@
         const w = this.screen.width;
         const h = this.screen.height;
 
-        ctx.clearRect(0, 0, w, h);
-
-        ctx.fillStyle = "#4a4a4a";
-        ctx.fillRect(0, 0, w, h);
+        this.renderBackdrop(ctx, w, h);
 
         ctx.save();
         ctx.translate(this.view.offsetX, this.view.offsetY);
         ctx.scale(this.view.scale, this.view.scale);
         ctx.translate(this.shakeOffsetX, this.shakeOffsetY);
 
+        this.renderPlayfield(ctx);
+        this.renderGroundSplotches(ctx);
+        const nowSeconds = performance.now() * 0.001;
+        this.renderEntities(ctx, nowSeconds);
+        this.renderParticles(ctx);
+        this.renderFlashRings(ctx);
+        this.renderTutorial(ctx);
+        this.renderHealthBar(ctx);
+        ctx.restore();
+      }
+
+      renderBackdrop(ctx, w, h) {
+        ctx.clearRect(0, 0, w, h);
+        ctx.fillStyle = "#4a4a4a";
+        ctx.fillRect(0, 0, w, h);
+      }
+
+      renderPlayfield(ctx) {
         ctx.fillStyle = "#8a8a8a";
         ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
 
         ctx.strokeStyle = "#6a6a6a";
         ctx.lineWidth = 2;
         ctx.strokeRect(1, 1, GAME_WIDTH - 2, GAME_HEIGHT - 2);
+      }
 
+      renderGroundSplotches(ctx) {
         for (let i = 0; i < this.groundSplotches.length; i++) {
           const s = this.groundSplotches[i];
           ctx.save();
@@ -1590,8 +1676,9 @@
           ctx.fill();
           ctx.restore();
         }
+      }
 
-        const nowSeconds = performance.now() * 0.001;
+      renderEntities(ctx, nowSeconds) {
         const holdDuration = this.input.getHoldDuration(nowSeconds);
         const chargeVisible = this.input.down && holdDuration >= this.input.chargeStartDelay;
         const chargeProgress = this.input.getChargeProgress(nowSeconds);
@@ -1599,10 +1686,14 @@
           this.enemies[i].draw(ctx, nowSeconds);
         }
         this.player.draw(ctx, chargeProgress, chargeVisible);
+      }
 
+      renderParticles(ctx) {
         this.particles.draw(ctx);
         this.rainbowParticles.draw(ctx);
+      }
 
+      renderFlashRings(ctx) {
         for (let i = 0; i < this.flashRings.length; i++) {
           const ring = this.flashRings[i];
           const t = ring.age / ring.life;
@@ -1627,15 +1718,19 @@
 
           ctx.restore();
         }
+      }
 
+      renderTutorial(ctx) {
         if (this.tutorial) {
           this.tutorial.draw(ctx);
         }
+      }
 
-        const hbWidth = 160;
-        const hbHeight = 10;
+      renderHealthBar(ctx) {
+        const hbWidth = UI_CFG.healthBarWidth;
+        const hbHeight = UI_CFG.healthBarHeight;
         const hbX = (GAME_WIDTH - hbWidth) * 0.5;
-        const hbY = GAME_HEIGHT - 24;
+        const hbY = GAME_HEIGHT - UI_CFG.healthBarBottomMargin;
         const hpFrac = this.player.health / this.player.maxHealth;
         ctx.save();
         ctx.globalAlpha = 0.35;
@@ -1651,8 +1746,6 @@
           ctx.fillStyle = "#cc2222";
           ctx.fillRect(hbX, hbY, hbWidth * hpFrac, hbHeight);
         }
-
-        ctx.restore();
       }
 
       frame = (timestamp) => {
