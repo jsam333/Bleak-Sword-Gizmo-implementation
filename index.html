@@ -1266,9 +1266,17 @@
               break;
             }
             if (!player.action && this.phaseTime > 0.5) {
-              this.active = false;
-              this.phase = "done";
-              this.tutorialTimeScale = 1;
+              this.setPhase("freeFightFirstRat");
+            }
+            break;
+
+          case "freeFightFirstRat":
+            this.tutorialTimeScale = 1;
+            this.textAlpha = 0;
+            if (!enemy.alive) {
+              this.chainSpawnRemaining = 3;
+              this.chainSpawnTimer = 0;
+              this.setPhase("chainSpawns");
             }
             break;
 
@@ -1769,15 +1777,15 @@
           this.timeScale = 1;
         }
 
-        const holdDt = this.hitstopTimer > 0 ? 0 : frameDt * this.timeScale;
-        this.input.advanceHold(holdDt);
+    const holdDt = this.hitstopTimer > 0 ? 0 : frameDt * this.timeScale;
+    this.input.advanceHold(holdDt);
 
-        const tutScale = this.tutorial ? this.tutorial.getTimeScale() : 1;
-        this.accumulator += frameDt * this.timeScale * tutScale;
-        while (this.accumulator >= this.fixedStep) {
-          this.update(this.fixedStep);
-          this.accumulator -= this.fixedStep;
-        }
+    this.accumulator += frameDt;
+    while (this.accumulator >= this.fixedStep) {
+      const tutScale = this.tutorial ? this.tutorial.getTimeScale() : 1;
+      this.update(this.fixedStep * this.timeScale * tutScale);
+      this.accumulator -= this.fixedStep;
+    }
 
         const interpAlpha = this.fixedStep > 1e-7 ? clamp(this.accumulator / this.fixedStep, 0, 1) : 1;
         for (let i = 0; i < this.enemies.length; i++) {
