@@ -153,12 +153,78 @@
       healthBarBottomMargin: 24
     };
 
+    const RAINBOW_CFG = {
+      speed: 520,
+      zBase: 250,
+      zRand: 250,
+      sizeBase: 3,
+      sizeRand: 5,
+      gravity: 600,
+      bouncinessBase: 0.5,
+      bouncinessRand: 0.2,
+      drag: 1.5,
+      visualYOffset: 0.7,
+      scaleMult: 0.002,
+      globalAlpha: 0.425
+    };
+
+    const TUTORIAL_CFG = {
+      dodgeSlowMoTrigger: 0.45,
+      crawlScale: 0.03,
+      crawlDuration: 2.8,
+      slowDropRate: 12,
+      chainSpawnDelay: 0.2,
+      chainSpawnCount: 3,
+      waitHoldDelay: 0.2,
+      freeFightDelay: 0.5
+    };
+
     function clamp(value, min, max) {
       return Math.max(min, Math.min(max, value));
     }
 
     function easeOutCubic(t) {
-      return 1 - Math.pow(1 - t, 3);
+      const invT = 1 - t;
+      return 1 - (invT * invT * invT);
+    }
+
+    const ratEmojiCanvas = document.createElement("canvas");
+    const ratEmojiCtx = ratEmojiCanvas.getContext("2d");
+    const ratFontSize = ENEMY_CFG.height * 1.2;
+    ratEmojiCanvas.width = ratFontSize * 1.5;
+    ratEmojiCanvas.height = ratFontSize * 1.5;
+    ratEmojiCtx.font = `${ratFontSize}px sans-serif`;
+    ratEmojiCtx.textAlign = "center";
+    ratEmojiCtx.textBaseline = "middle";
+    ratEmojiCtx.fillText("🐀", ratEmojiCanvas.width / 2, ratEmojiCanvas.height / 2);
+
+    class MathUtils {
+      static swapAndPop(array, index) {
+        const last = array.length - 1;
+        if (index !== last) {
+          array[index] = array[last];
+        }
+        array.pop();
+      }
+
+      static distanceSq(x1, y1, x2, y2) {
+        const dx = x1 - x2;
+        const dy = y1 - y2;
+        return dx * dx + dy * dy;
+      }
+
+      static isPointInRect(x, y, minX, minY, maxX, maxY) {
+        return x >= minX && x <= maxX && y >= minY && y <= maxY;
+      }
+
+      static isCircleOverlappingRect(circleX, circleY, radius, rectMinX, rectMinY, rectMaxX, rectMaxY) {
+        if (MathUtils.isPointInRect(circleX, circleY, rectMinX, rectMinY, rectMaxX, rectMaxY)) {
+          return true;
+        }
+        const closestX = clamp(circleX, rectMinX, rectMaxX);
+        const closestY = clamp(circleY, rectMinY, rectMaxY);
+        return MathUtils.distanceSq(circleX, circleY, closestX, closestY) <= radius * radius;
+      }
     }
 
     class Vec2 {
@@ -175,7 +241,7 @@
       }
 
       static length(v) {
-        return Math.hypot(v.x, v.y);
+        return Math.sqrt(v.x * v.x + v.y * v.y);
       }
 
       static normalize(v) {
@@ -319,23 +385,48 @@
       }
     }
 
-    class Player {
-      constructor() {
-        this.x = GAME_WIDTH * 0.5;
-        this.y = GAME_HEIGHT * 0.5;
+    class Entity {
+      constructor(x, y, width, height) {
+        this.x = x;
+        this.y = y;
         this.vx = 0;
         this.vy = 0;
+        this.width = width;
+        this.height = height;
+        this.trail = [];
+        this.trailSpawnTimer = 0;
+      }
 
-        this.width = PLAYER_CFG.width;
-        this.height = PLAYER_CFG.height;
+      clampToPlayfield() {
+        const halfW = this.width * 0.5;
+        const halfH = this.height * 0.5;
+        this.x = clamp(this.x, halfW, GAME_WIDTH - halfW);
+        this.y = clamp(this.y, halfH, GAME_HEIGHT - halfH);
+      }
+
+      ageTrail(dt) {
+        for (let i = this.trail.length - 1; i >= 0; i -= 1) {
+          const sample = this.trail[i];
+          sample.age += dt;
+          if (sample.age >= sample.life) {
+            MathUtils.swapAndPop(this.trail, i);
+          }
+        }
+      }
+    }
+
+    class Player extends Entity {
+      constructor() {
+        super(GAME_WIDTH * 0.5, GAME_HEIGHT * 0.5, PLAYER_CFG.width, PLAYER_CFG.height);
         this.baseAngle = 0;
         this.spinAngle = 0;
 
         this.action = null;
         this.actionSerial = 0;
-        this.trail = [];
-        this.trailSpawnTimer = 0;
         this.stains = [];
+
+        this.chargeProgress = 0;
+        this.chargeVisible = false;
 
         this.maxHealth = PLAYER_CFG.maxHealth;
         this.health = this.maxHealth;
@@ -377,6 +468,9 @@
 
       update(dt, input, nowSeconds) {
         this.updateStatusTimers(dt);
+        const holdDuration = input.getHoldDuration(nowSeconds);
+        this.chargeVisible = input.down && holdDuration >= input.chargeStartDelay;
+        this.chargeProgress = input.getChargeProgress(nowSeconds);
         this.consumeQueuedSwipe(input);
         this.updateAction(dt);
         this.applyPostActionDamping(dt);
@@ -485,35 +579,20 @@
         }
       }
 
-      clampToPlayfield() {
-        const halfW = this.width * 0.5;
-        const halfH = this.height * 0.5;
-        this.x = clamp(this.x, halfW, GAME_WIDTH - halfW);
-        this.y = clamp(this.y, halfH, GAME_HEIGHT - halfH);
-      }
-
-      ageTrail(dt) {
-        for (let i = this.trail.length - 1; i >= 0; i -= 1) {
-          const sample = this.trail[i];
-          sample.age += dt;
-          if (sample.age >= sample.life) {
-            this.trail.splice(i, 1);
-          }
-        }
-      }
-
-      draw(ctx, chargeProgress, chargeVisible) {
+      draw(ctx) {
+        ctx.save();
+        ctx.fillStyle = "#ffffff";
         for (let i = 0; i < this.trail.length; i += 1) {
           const t = this.trail[i];
           const alpha = (1 - t.age / t.life) * t.alpha;
-          ctx.save();
           ctx.globalAlpha = alpha;
           ctx.translate(t.x, t.y);
           ctx.rotate(t.angle);
-          ctx.fillStyle = "#ffffff";
           ctx.fillRect(-this.width * 0.5, -this.height * 0.5, this.width, this.height);
-          ctx.restore();
+          ctx.rotate(-t.angle);
+          ctx.translate(-t.x, -t.y);
         }
+        ctx.restore();
 
         if (this.action && this.action.type === "charged") {
           const ringScale = 1.1;
@@ -576,7 +655,7 @@
         }
         ctx.restore();
 
-        if (chargeVisible && !this.action) {
+        if (this.chargeVisible && !this.action) {
           const ringScale = 1.1;
           const chargeBarLineWidth = 3 * 1.3;
           const chargeBarOuterRadius = this.height * 0.5 * ringScale;
@@ -586,17 +665,16 @@
           ctx.lineWidth = chargeBarLineWidth;
           ctx.strokeStyle = "#ffffff";
           ctx.beginPath();
-          ctx.arc(0, 0, chargeBarRadius, -Math.PI / 2, -Math.PI / 2 + TAU * chargeProgress);
+          ctx.arc(0, 0, chargeBarRadius, -Math.PI / 2, -Math.PI / 2 + TAU * this.chargeProgress);
           ctx.stroke();
           ctx.restore();
         }
       }
     }
 
-    class TriangleEnemy {
+    class TriangleEnemy extends Entity {
       constructor(x, y) {
-        this.x = x;
-        this.y = y;
+        super(x, y, ENEMY_CFG.width, ENEMY_CFG.height);
         this.prevX = x;
         this.prevY = y;
         this.prevRollAngle = 0;
@@ -604,13 +682,9 @@
         this.renderY = y;
         this.renderRollAngle = 0;
         this.entering = false;
-        this.vx = 0;
-        this.vy = 0;
         this.knockbackVX = 0;
         this.knockbackVY = 0;
 
-        this.width = ENEMY_CFG.width;
-        this.height = ENEMY_CFG.height;
         this.hitRadius = ENEMY_CFG.hitRadius;
 
         this.maxHealthQuarters = ENEMY_CFG.maxHealthQuarters;
@@ -640,8 +714,6 @@
         this.rollAngle = 0;
         this.chargeSpinAmount = ENEMY_CFG.chargeSpinAmount;
         this.chargeElapsed = 0;
-        this.trail = [];
-        this.trailSpawnTimer = 0;
       }
 
       update(dt, player) {
@@ -675,16 +747,6 @@
         this.hitFlashTimer = Math.max(0, this.hitFlashTimer - dt);
         this.stunTimer = Math.max(0, this.stunTimer - dt);
         this.postAttackCooldownTimer = Math.max(0, this.postAttackCooldownTimer - dt);
-      }
-
-      ageTrail(dt) {
-        for (let i = this.trail.length - 1; i >= 0; i -= 1) {
-          const sample = this.trail[i];
-          sample.age += dt;
-          if (sample.age >= sample.life) {
-            this.trail.splice(i, 1);
-          }
-        }
       }
 
       updateState(dt, playerDistance, toPlayerDir) {
@@ -807,9 +869,7 @@
 
       isOverlappingPlayer(player) {
         const combatReach = Math.max(player.width, player.height) * ENEMY_CFG.combatReachPlayerFactor + this.hitRadius;
-        const dx = this.x - player.x;
-        const dy = this.y - player.y;
-        return dx * dx + dy * dy <= combatReach * combatReach;
+        return MathUtils.distanceSq(this.x, this.y, player.x, player.y) <= combatReach * combatReach;
       }
 
       onPlayerContact(player, game) {
@@ -946,21 +1006,18 @@
         const ry = this.renderY;
         const rAngle = this.renderRollAngle;
 
-        const ratEmoji = "🐀";
-        const ratFontSize = this.height * 1.2;
+        ctx.save();
         for (let i = 0; i < this.trail.length; i += 1) {
           const t = this.trail[i];
           const alpha = (1 - t.age / t.life) * t.alpha;
-          ctx.save();
           ctx.globalAlpha = alpha;
           ctx.translate(t.x, t.y);
           ctx.rotate(t.angle);
-          ctx.font = `${ratFontSize}px sans-serif`;
-          ctx.textAlign = "center";
-          ctx.textBaseline = "middle";
-          ctx.fillText(ratEmoji, 0, 0);
-          ctx.restore();
+          ctx.drawImage(ratEmojiCanvas, -ratEmojiCanvas.width / 2, -ratEmojiCanvas.height / 2);
+          ctx.rotate(-t.angle);
+          ctx.translate(-t.x, -t.y);
         }
+        ctx.restore();
 
         const shadowY = ry + this.height * 0.35 - 3.5;
         ctx.save();
@@ -988,17 +1045,33 @@
         }
         ctx.translate(rx, ry);
         ctx.rotate(waddle + rAngle);
-        ctx.font = `${ratFontSize}px sans-serif`;
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        ctx.fillText(ratEmoji, 0, 0);
+        ctx.drawImage(ratEmojiCanvas, -ratEmojiCanvas.width / 2, -ratEmojiCanvas.height / 2);
         ctx.restore();
+      }
+    }
+
+    class Pool {
+      constructor(factory, initialSize) {
+        this.factory = factory;
+        this.items = [];
+        for (let i = 0; i < initialSize; i++) {
+          this.items.push(this.factory());
+        }
+      }
+      get() {
+        return this.items.length > 0 ? this.items.pop() : this.factory();
+      }
+      release(item) {
+        this.items.push(item);
       }
     }
 
     class ParticleSystem {
       constructor() {
         this.particles = [];
+        this.pool = new Pool(() => ({
+          x: 0, y: 0, vx: 0, vy: 0, life: 0, maxLife: 0, size: 0, color: "", drag: 0
+        }), 200);
       }
 
       emit(x, y, count, config) {
@@ -1007,16 +1080,18 @@
           const speed = config.minSpeed + Math.random() * (config.maxSpeed - config.minSpeed);
           const life = config.minLife + Math.random() * (config.maxLife - config.minLife);
           const size = config.minSize + Math.random() * (config.maxSize - config.minSize);
-          this.particles.push({
-            x, y,
-            vx: Math.cos(angle) * speed,
-            vy: Math.sin(angle) * speed,
-            life,
-            maxLife: life,
-            size,
-            color: config.colors[Math.floor(Math.random() * config.colors.length)],
-            drag: config.drag || 0
-          });
+          
+          const p = this.pool.get();
+          p.x = x;
+          p.y = y;
+          p.vx = Math.cos(angle) * speed;
+          p.vy = Math.sin(angle) * speed;
+          p.life = life;
+          p.maxLife = life;
+          p.size = size;
+          p.color = config.colors[Math.floor(Math.random() * config.colors.length)];
+          p.drag = config.drag || 0;
+          this.particles.push(p);
         }
       }
 
@@ -1032,50 +1107,61 @@
           p.y += p.vy * dt;
           p.life -= dt;
           if (p.life <= 0) {
-            this.particles.splice(i, 1);
+            this.pool.release(p);
+            MathUtils.swapAndPop(this.particles, i);
           }
         }
       }
 
       draw(ctx) {
+        ctx.save();
         for (let i = 0; i < this.particles.length; i++) {
           const p = this.particles[i];
           const t = p.life / p.maxLife;
           const currentSize = p.size * (0.3 + 0.7 * t);
-          ctx.save();
           ctx.globalAlpha = t * t;
           ctx.fillStyle = p.color;
           ctx.translate(p.x, p.y);
-          ctx.rotate(Math.atan2(p.vy, p.vx));
+          const angle = Math.atan2(p.vy, p.vx);
+          ctx.rotate(angle);
           ctx.fillRect(-currentSize * 0.5, -currentSize * 0.3, currentSize, currentSize * 0.6);
-          ctx.restore();
+          ctx.rotate(-angle);
+          ctx.translate(-p.x, -p.y);
         }
+        ctx.restore();
       }
     }
 
     class RainbowDeathParticleSystem {
       constructor() {
         this.particles = [];
+        this.pool = new Pool(() => ({
+          x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, r: 0, g: 0, b: 0, size: 0, gravity: 0, bounciness: 0, drag: 0
+        }), 200);
       }
 
       emit(x, y, count) {
         for (let i = 0; i < count; i++) {
           const angle = Math.random() * TAU;
-          const speed = Math.random() * 520;
+          const speed = Math.random() * RAINBOW_CFG.speed;
           const hue = Math.random() * 360;
           const color = hslToRgb(hue, 100, 50);
-          this.particles.push({
-            x, y,
-            z: 0,
-            vx: Math.cos(angle) * speed,
-            vy: Math.sin(angle) * speed,
-            vz: 250 + Math.random() * 250,
-            r: color.r, g: color.g, b: color.b,
-            size: 3 + Math.random() * 5,
-            gravity: 600,
-            bounciness: 0.5 + Math.random() * 0.2,
-            drag: 1.5
-          });
+          
+          const p = this.pool.get();
+          p.x = x;
+          p.y = y;
+          p.z = 0;
+          p.vx = Math.cos(angle) * speed;
+          p.vy = Math.sin(angle) * speed;
+          p.vz = RAINBOW_CFG.zBase + Math.random() * RAINBOW_CFG.zRand;
+          p.r = color.r;
+          p.g = color.g;
+          p.b = color.b;
+          p.size = RAINBOW_CFG.sizeBase + Math.random() * RAINBOW_CFG.sizeRand;
+          p.gravity = RAINBOW_CFG.gravity;
+          p.bounciness = RAINBOW_CFG.bouncinessBase + Math.random() * RAINBOW_CFG.bouncinessRand;
+          p.drag = RAINBOW_CFG.drag;
+          this.particles.push(p);
         }
       }
 
@@ -1107,14 +1193,8 @@
             const playerMaxY = player.y + halfH;
             const stainRadius = p.size * (1.0 + Math.random());
 
-            const directHit = p.x >= playerMinX && p.x <= playerMaxX &&
-              p.y >= playerMinY && p.y <= playerMaxY;
-
-            const closestX = clamp(p.x, playerMinX, playerMaxX);
-            const closestY = clamp(p.y, playerMinY, playerMaxY);
-            const splashDX = p.x - closestX;
-            const splashDY = p.y - closestY;
-            const splashHit = splashDX * splashDX + splashDY * splashDY <= stainRadius * stainRadius;
+            const directHit = MathUtils.isPointInRect(p.x, p.y, playerMinX, playerMinY, playerMaxX, playerMaxY);
+            const splashHit = MathUtils.isCircleOverlappingRect(p.x, p.y, stainRadius, playerMinX, playerMinY, playerMaxX, playerMaxY);
 
             if (directHit || splashHit) {
               player.stains.push({
@@ -1134,25 +1214,26 @@
                 alpha: 0.0875 + Math.random() * 0.0375
               });
             }
-            this.particles.splice(i, 1);
+            this.pool.release(p);
+            MathUtils.swapAndPop(this.particles, i);
           }
         }
       }
 
       draw(ctx) {
+        ctx.save();
+        ctx.globalAlpha = RAINBOW_CFG.globalAlpha;
         for (let i = 0; i < this.particles.length; i++) {
           const p = this.particles[i];
-          const visualY = p.y - p.z * 0.7;
-          const scale = 1 + p.z * 0.002;
+          const visualY = p.y - p.z * RAINBOW_CFG.visualYOffset;
+          const scale = 1 + p.z * RAINBOW_CFG.scaleMult;
           const currentSize = p.size * scale;
-          ctx.save();
-          ctx.globalAlpha = 0.425;
           ctx.fillStyle = `rgb(${p.r},${p.g},${p.b})`;
           ctx.beginPath();
           ctx.arc(p.x, visualY, currentSize, 0, TAU);
           ctx.fill();
-          ctx.restore();
         }
+        ctx.restore();
       }
     }
 
@@ -1161,17 +1242,17 @@
         this.game = game;
         this.phase = "intro";
         this.phaseTime = 0;
-        this.dodgeSlowMoTrigger = 0.45;
+        this.dodgeSlowMoTrigger = TUTORIAL_CFG.dodgeSlowMoTrigger;
         this.tutorialTimeScale = 1;
         this.textAlpha = 0;
         this.fingerAnimTime = 0;
         this.active = true;
         this.attackDir = { x: 0, y: -1 };
-        this.crawlScale = 0.03;
-        this.crawlDuration = 2.8;
-        this.slowDropRate = 12;
+        this.crawlScale = TUTORIAL_CFG.crawlScale;
+        this.crawlDuration = TUTORIAL_CFG.crawlDuration;
+        this.slowDropRate = TUTORIAL_CFG.slowDropRate;
         this.chainSpawnRemaining = 0;
-        this.chainSpawnDelay = 0.2;
+        this.chainSpawnDelay = TUTORIAL_CFG.chainSpawnDelay;
         this.chainSpawnTimer = 0;
       }
 
@@ -1190,123 +1271,150 @@
 
         switch (this.phase) {
           case "intro":
-            this.tutorialTimeScale = 1;
-            input.pendingSwipe = null;
-            if (enemy.state === "charge" && enemy.chargeDuration > 1e-7 &&
-              enemy.chargeElapsed / enemy.chargeDuration >= this.dodgeSlowMoTrigger) {
-              this.setPhase("waitDodge");
-              this.tutorialTimeScale = 1;
-            }
+            this.handleIntro(enemy, input);
             break;
-
           case "waitDodge":
-            if (this.tutorialTimeScale > this.crawlScale) {
-              this.tutorialTimeScale = Math.max(this.crawlScale, this.tutorialTimeScale - realDt * this.slowDropRate);
-            } else if (this.phaseTime > this.crawlDuration) {
-              this.tutorialTimeScale = 0;
-            }
-            this.textAlpha = Math.min(1, this.phaseTime * 3);
-            if (input.pendingSwipe) {
-              const swipe = input.pendingSwipe;
-              input.pendingSwipe = null;
-              player.startMove("dodge", swipe.direction);
-              this.tutorialTimeScale = 1;
-              this.setPhase("dodging");
-            }
+            this.handleWaitDodge(realDt, player, input);
             break;
-
           case "dodging":
-            this.tutorialTimeScale = 1;
-            input.pendingSwipe = null;
-            this.textAlpha = Math.max(0, this.textAlpha - realDt * 5);
-            if (!player.action) {
-              this.setPhase("postDodgeWait");
-            }
+            this.handleDodging(realDt, player, input);
             break;
-
           case "postDodgeWait":
-            this.tutorialTimeScale = 1;
-            input.pendingSwipe = null;
-            if (this.phaseTime >= 0.2) {
-              this.setPhase("waitHold");
-              this.tutorialTimeScale = 1;
-            }
+            this.handlePostDodgeWait(input);
             break;
-
-          case "waitHold": {
-            if (this.tutorialTimeScale > this.crawlScale) {
-              this.tutorialTimeScale = Math.max(this.crawlScale, this.tutorialTimeScale - realDt * this.slowDropRate);
-            } else if (this.phaseTime > this.crawlDuration) {
-              this.tutorialTimeScale = 0;
-            }
-            this.textAlpha = Math.min(1, this.phaseTime * 3);
-            input.pendingSwipe = null;
-            const nowSec = performance.now() * 0.001;
-            const chargeProgress = input.getChargeProgress(nowSec);
-            if (chargeProgress >= 1) {
-              const targetEnemy = this.game.getClosestAliveEnemy(player) || enemy;
-              const dir = Vec2.sub({ x: targetEnemy.x, y: targetEnemy.y }, { x: player.x, y: player.y });
-              this.attackDir = Vec2.length(dir) > 1e-5 ? Vec2.normalize(dir) : { x: 0, y: -1 };
-              this.setPhase("waitAttack");
-            }
+          case "waitHold":
+            this.handleWaitHold(realDt, player, enemy, input);
             break;
-          }
-
           case "waitAttack":
-            this.tutorialTimeScale = 0;
-            this.textAlpha = Math.min(1, this.phaseTime * 3);
-            if (input.pendingSwipe) {
-              const swipe = input.pendingSwipe;
-              input.pendingSwipe = null;
-              player.startMove("charged", swipe.direction);
-              this.tutorialTimeScale = 1;
-              this.setPhase("attacking");
-            }
+            this.handleWaitAttack(realDt, player, input);
             break;
-
           case "attacking":
-            this.tutorialTimeScale = 1;
-            input.pendingSwipe = null;
-            this.textAlpha = Math.max(0, this.textAlpha - realDt * 3);
-            if (!enemy.alive) {
-              this.chainSpawnRemaining = 3;
-              this.chainSpawnTimer = 0;
-              this.setPhase("chainSpawns");
-              break;
-            }
-            if (!player.action && this.phaseTime > 0.5) {
-              this.setPhase("freeFightFirstRat");
-            }
+            this.handleAttacking(realDt, player, enemy, input);
             break;
-
           case "freeFightFirstRat":
-            this.tutorialTimeScale = 1;
-            this.textAlpha = 0;
-            if (!enemy.alive) {
-              this.chainSpawnRemaining = 3;
-              this.chainSpawnTimer = 0;
-              this.setPhase("chainSpawns");
-            }
+            this.handleFreeFightFirstRat(enemy);
             break;
-
           case "chainSpawns":
-            this.tutorialTimeScale = 1;
-            this.textAlpha = 0;
-            if (this.chainSpawnRemaining > 0) {
-              this.chainSpawnTimer = Math.max(0, this.chainSpawnTimer - realDt);
-              if (this.chainSpawnTimer <= 0) {
-                this.spawnEnemyFromRandomHorizontalSide();
-                this.chainSpawnRemaining -= 1;
-                this.chainSpawnTimer = this.chainSpawnDelay;
-              }
-            } else {
-              const allDead = this.game.enemies.every(e => !e.alive);
-              if (allDead) {
-                this.active = false;
-                this.phase = "done";
-              }
-            }
+            this.handleChainSpawns(realDt);
             break;
+        }
+      }
+
+      handleIntro(enemy, input) {
+        this.tutorialTimeScale = 1;
+        input.pendingSwipe = null;
+        if (enemy.state === "charge" && enemy.chargeDuration > 1e-7 &&
+          enemy.chargeElapsed / enemy.chargeDuration >= this.dodgeSlowMoTrigger) {
+          this.setPhase("waitDodge");
+          this.tutorialTimeScale = 1;
+        }
+      }
+
+      handleWaitDodge(realDt, player, input) {
+        if (this.tutorialTimeScale > this.crawlScale) {
+          this.tutorialTimeScale = Math.max(this.crawlScale, this.tutorialTimeScale - realDt * this.slowDropRate);
+        } else if (this.phaseTime > this.crawlDuration) {
+          this.tutorialTimeScale = 0;
+        }
+        this.textAlpha = Math.min(1, this.phaseTime * 3);
+        if (input.pendingSwipe) {
+          const swipe = input.pendingSwipe;
+          input.pendingSwipe = null;
+          player.startMove("dodge", swipe.direction);
+          this.tutorialTimeScale = 1;
+          this.setPhase("dodging");
+        }
+      }
+
+      handleDodging(realDt, player, input) {
+        this.tutorialTimeScale = 1;
+        input.pendingSwipe = null;
+        this.textAlpha = Math.max(0, this.textAlpha - realDt * 5);
+        if (!player.action) {
+          this.setPhase("postDodgeWait");
+        }
+      }
+
+      handlePostDodgeWait(input) {
+        this.tutorialTimeScale = 1;
+        input.pendingSwipe = null;
+        if (this.phaseTime >= 0.2) {
+          this.setPhase("waitHold");
+          this.tutorialTimeScale = 1;
+        }
+      }
+
+      handleWaitHold(realDt, player, enemy, input) {
+        if (this.tutorialTimeScale > this.crawlScale) {
+          this.tutorialTimeScale = Math.max(this.crawlScale, this.tutorialTimeScale - realDt * this.slowDropRate);
+        } else if (this.phaseTime > this.crawlDuration) {
+          this.tutorialTimeScale = 0;
+        }
+        this.textAlpha = Math.min(1, this.phaseTime * 3);
+        input.pendingSwipe = null;
+        const nowSec = performance.now() * 0.001;
+        const chargeProgress = input.getChargeProgress(nowSec);
+        if (chargeProgress >= 1) {
+          const targetEnemy = this.game.getClosestAliveEnemy(player) || enemy;
+          const dir = Vec2.sub({ x: targetEnemy.x, y: targetEnemy.y }, { x: player.x, y: player.y });
+          this.attackDir = Vec2.length(dir) > 1e-5 ? Vec2.normalize(dir) : { x: 0, y: -1 };
+          this.setPhase("waitAttack");
+        }
+      }
+
+      handleWaitAttack(realDt, player, input) {
+        this.tutorialTimeScale = 0;
+        this.textAlpha = Math.min(1, this.phaseTime * 3);
+        if (input.pendingSwipe) {
+          const swipe = input.pendingSwipe;
+          input.pendingSwipe = null;
+          player.startMove("charged", swipe.direction);
+          this.tutorialTimeScale = 1;
+          this.setPhase("attacking");
+        }
+      }
+
+      handleAttacking(realDt, player, enemy, input) {
+        this.tutorialTimeScale = 1;
+        input.pendingSwipe = null;
+        this.textAlpha = Math.max(0, this.textAlpha - realDt * 3);
+        if (!enemy.alive) {
+          this.chainSpawnRemaining = TUTORIAL_CFG.chainSpawnCount;
+          this.chainSpawnTimer = 0;
+          this.setPhase("chainSpawns");
+          return;
+        }
+        if (!player.action && this.phaseTime > TUTORIAL_CFG.freeFightDelay) {
+          this.setPhase("freeFightFirstRat");
+        }
+      }
+
+      handleFreeFightFirstRat(enemy) {
+        this.tutorialTimeScale = 1;
+        this.textAlpha = 0;
+        if (!enemy.alive) {
+          this.chainSpawnRemaining = TUTORIAL_CFG.chainSpawnCount;
+          this.chainSpawnTimer = 0;
+          this.setPhase("chainSpawns");
+        }
+      }
+
+      handleChainSpawns(realDt) {
+        this.tutorialTimeScale = 1;
+        this.textAlpha = 0;
+        if (this.chainSpawnRemaining > 0) {
+          this.chainSpawnTimer = Math.max(0, this.chainSpawnTimer - realDt);
+          if (this.chainSpawnTimer <= 0) {
+            this.spawnEnemyFromRandomHorizontalSide();
+            this.chainSpawnRemaining -= 1;
+            this.chainSpawnTimer = this.chainSpawnDelay;
+          }
+        } else {
+          const allDead = this.game.enemies.every(e => !e.alive);
+          if (allDead) {
+            this.active = false;
+            this.phase = "done";
+          }
         }
       }
 
@@ -1602,9 +1710,7 @@
           if (!enemy.alive) {
             continue;
           }
-          const dx = enemy.x - fromEntity.x;
-          const dy = enemy.y - fromEntity.y;
-          const distSq = dx * dx + dy * dy;
+          const distSq = MathUtils.distanceSq(enemy.x, enemy.y, fromEntity.x, fromEntity.y);
           if (distSq < bestDistSq) {
             bestDistSq = distSq;
             bestEnemy = enemy;
@@ -1620,7 +1726,7 @@
         for (let i = this.flashRings.length - 1; i >= 0; i--) {
           this.flashRings[i].age += dt;
           if (this.flashRings[i].age >= this.flashRings[i].life) {
-            this.flashRings.splice(i, 1);
+            MathUtils.swapAndPop(this.flashRings, i);
           }
         }
 
@@ -1707,13 +1813,10 @@
       }
 
       renderEntities(ctx, nowSeconds) {
-        const holdDuration = this.input.getHoldDuration(nowSeconds);
-        const chargeVisible = this.input.down && holdDuration >= this.input.chargeStartDelay;
-        const chargeProgress = this.input.getChargeProgress(nowSeconds);
         for (let i = 0; i < this.enemies.length; i++) {
           this.enemies[i].draw(ctx, nowSeconds);
         }
-        this.player.draw(ctx, chargeProgress, chargeVisible);
+        this.player.draw(ctx);
       }
 
       renderParticles(ctx) {
