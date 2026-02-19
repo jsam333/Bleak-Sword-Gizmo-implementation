@@ -1,0 +1,730 @@
+BLEAK SWORD GIZMO PROTOTYPE
+DETAILED PSEUDOCODE FOR CURRENT IMPLEMENTATION STATE
+
+========================================================================
+0) FILE SCOPE
+========================================================================
+
+This pseudocode documents the full behavior implemented in:
+  - index.html
+
+The game is a single-file browser app with:
+  - one full-screen canvas
+  - fixed logical playfield (500 x 720)
+  - pointer swipe controls for dodge and charged attacks
+  - one triangle enemy with state-based AI
+  - particle effects, flash rings, screenshake, hitstop, and time-slow
+
+All gameplay and movement are time-based and frame-rate independent.
+
+========================================================================
+1) HTML/CSS STRUCTURE
+========================================================================
+
+HTML:
+  create canvas: <canvas id="gameCanvas">
+  attach one <script> containing all runtime code
+
+CSS:
+  global:
+    disable text selection and touch callout
+    use light color scheme
+  html/body:
+    margin 0
+    width/height 100%
+    overflow hidden
+    background #bdbdbd
+  canvas:
+    full viewport size
+    display block
+    touch-action none (direct pointer handling)
+
+========================================================================
+2) GLOBALS + HELPERS
+========================================================================
+
+CONSTANTS:
+  GAME_WIDTH  = 500
+  GAME_HEIGHT = 720
+  TAU         = 2 * PI
+
+FUNCTION clamp(value, min, max):
+  return max(min, min(value, max))
+
+FUNCTION easeOutCubic(t):
+  return 1 - (1 - t)^3
+
+========================================================================
+3) VECTOR MATH UTILITY (Vec2)
+========================================================================
+
+CLASS Vec2:
+  add(a, b):
+    return { x: a.x + b.x, y: a.y + b.y }
+
+  sub(a, b):
+    return { x: a.x - b.x, y: a.y - b.y }
+
+  mul(a, scalar):
+    return { x: a.x * scalar, y: a.y * scalar }
+
+  length(v):
+    return hypot(v.x, v.y)
+
+  normalize(v):
+    len = length(v)
+    if len <= 1e-7:
+      return { x: 0, y: 0 }
+    return { x: v.x / len, y: v.y / len }
+
+========================================================================
+4) INPUT SYSTEM (POINTER + CHARGE DETECTION)
+========================================================================
+
+CLASS InputSystem(getWorldPointer):
+  FIELDS:
+    getWorldPointer
+    activePointerId = null
+    down = false
+    start = {0,0}
+    current = {0,0}
+    downTime = 0
+    pendingSwipe = null
+
+    minSwipeDistance = 14
+    chargeStartDelay = 0.1
+    chargeFillDuration = 0.3
+    fullChargeThreshold = 0.4
+
+  bind(canvas):
+    listen pointerdown -> onPointerDown
+    listen pointermove -> onPointerMove
+    listen pointerup -> onPointerUp
+    listen pointercancel -> onPointerUp
+
+  isInPlayfield(point):
+    return 0 <= point.x <= GAME_WIDTH and 0 <= point.y <= GAME_HEIGHT
+
+  onPointerDown(event):
+    if already holding pointer: return
+    world = getWorldPointer(event)
+    if world is null or outside playfield: return
+    down = true
+    activePointerId = event.pointerId
+    start = world
+    current = world
+    downTime = performance.now() in seconds
+    pendingSwipe = null
+
+  onPointerMove(event):
+    if not down or pointer id mismatch: return
+    world = getWorldPointer(event)
+    if world null: return
+    current = world
+
+  onPointerUp(event):
+    if not down or pointer id mismatch: return
+    world = getWorldPointer(event)
+    releasePos = world OR current
+    holdDuration = now - downTime
+    swipeVec = releasePos - start
+    swipeDistance = length(swipeVec)
+
+    if swipeDistance >= minSwipeDistance:
+      pendingSwipe = {
+        direction: normalize(swipeVec),
+        distance: swipeDistance,
+        holdDuration,
+        fullyCharged: holdDuration >= fullChargeThreshold
+      }
+
+    down = false
+    activePointerId = null
+
+  consumeSwipe():
+    out = pendingSwipe
+    pendingSwipe = null
+    return out
+
+  getHoldDuration(nowSeconds):
+    if not down: return 0
+    return nowSeconds - downTime
+
+  getChargeProgress(nowSeconds):
+    hold = getHoldDuration(nowSeconds)
+    if hold < chargeStartDelay: return 0
+    return clamp((hold - chargeStartDelay) / chargeFillDuration, 0, 1)
+
+========================================================================
+5) PLAYER ENTITY
+========================================================================
+
+CLASS Player:
+  INITIAL STATE:
+    x = GAME_WIDTH * 0.5
+    y = GAME_HEIGHT * 0.5
+    vx = 0
+    vy = 0
+
+    width = 14
+    height = 60
+    baseAngle = 0
+    spinAngle = 0
+
+    action = null
+    trail = []
+    trailSpawnTimer = 0
+
+  startMove(type, direction):
+    dir = normalize(direction)
+    horizontalSign = +1 if dir.x >= 0 else -1
+
+    isDodge = (type == "dodge")
+    duration = 0.12 if dodge else 0.2
+    travel   = 78   if dodge else 150
+    spins    = (PI * 0.8 * horizontalSign) if dodge
+               else (TAU * 2 * horizontalSign)
+
+    action = {
+      type,
+      direction: dir,
+      duration,
+      elapsed: 0,
+      travel,
+      spins,
+      startAngle: 0
+    }
+
+  update(dt, input, nowSeconds):
+    swipe = input.consumeSwipe()
+    if swipe exists:
+      moveType = "charged" if swipe.fullyCharged else "dodge"
+      startMove(moveType, swipe.direction)
+
+    if action exists:
+      action.elapsed += dt
+      t = clamp(action.elapsed / action.duration, 0, 1)
+      speed = action.travel / action.duration
+
+      vx = action.direction.x * speed
+      vy = action.direction.y * speed
+      spinAngle = action.startAngle + action.spins * easeOutCubic(t)
+
+      trailSpawnTimer += dt
+      while trailSpawnTimer >= 0.016:
+        trailSpawnTimer -= 0.016
+        trail.push({
+          x, y,
+          angle: spinAngle,
+          age: 0,
+          life: 0.32 if dodge else 0.44,
+          alpha: 0.2 if dodge else 0.3
+        })
+        if trail length > 48:
+          remove oldest sample
+
+      if action.elapsed >= action.duration:
+        action = null
+        vx = 0
+        vy = 0
+        spinAngle = 0
+    else:
+      // strong post-action damping
+      vx *= max(0, 1 - dt * 18)
+      vy *= max(0, 1 - dt * 18)
+      spinAngle = 0
+
+    x += vx * dt
+    y += vy * dt
+
+    halfW = width * 0.5
+    halfH = height * 0.5
+    x = clamp(x, halfW, GAME_WIDTH - halfW)
+    y = clamp(y, halfH, GAME_HEIGHT - halfH)
+
+    for each trail sample in reverse:
+      sample.age += dt
+      if sample.age >= sample.life:
+        remove sample
+
+  draw(ctx, chargeProgress, chargeVisible):
+    draw all trail rectangles with decaying alpha
+
+    if action exists and action.type == "charged":
+      draw thick white ring around player body
+
+    draw two subtle shadow ellipses under player
+
+    draw player as white vertical rectangle rotated by spinAngle
+
+    if chargeVisible and action is null:
+      charged = chargeProgress >= 1
+      draw progress arc radius 36
+      stroke dark when charged, gray otherwise
+
+========================================================================
+6) TRIANGLE ENEMY
+========================================================================
+
+CLASS TriangleEnemy(x, y):
+  INITIAL STATE:
+    position (x, y)
+    velocity (vx, vy) = 0
+    knockback velocity (knockbackVX, knockbackVY) = 0
+
+    width = 44
+    height = 40
+    hitRadius = 24
+
+    maxHealthQuarters = 4
+    healthQuarters = 4
+    alive = true
+
+    state = "stalk"
+      available states: stalk, windup, charge, recover
+
+    behavior tuning:
+      chargeTriggerDistance = 75
+      windupDuration = 0.57
+      chargeDuration = 0.256
+      recoverDuration = 0.3
+      stalkSpeed = 36
+      chargeSpeed = 560
+      stunDuration = 0.32
+
+    timers:
+      windupTimer, chargeTimer, recoverTimer
+      waddleTime
+      hitCooldown
+      hitFlashTimer
+      stunTimer
+      chargeElapsed
+      trailSpawnTimer
+
+    orientation:
+      rollAngle = 0
+      chargeSpinAmount = TAU * 1.4
+      chargeDirection = {0,0}
+
+    trail = []
+
+  update(dt, player):
+    if not alive: return
+
+    advance/decay timers:
+      waddleTime += dt
+      hitCooldown = max(0, hitCooldown - dt)
+      hitFlashTimer = max(0, hitFlashTimer - dt)
+      stunTimer = max(0, stunTimer - dt)
+
+    age/prune trail samples
+
+    toPlayer = playerPos - enemyPos
+    playerDistance = length(toPlayer)
+    toPlayerDir = normalized(toPlayer), fallback {0,0} for near-zero distance
+
+    if stunTimer > 0:
+      vx = 0; vy = 0; rollAngle = 0
+
+    else if state == "stalk":
+      vx = toPlayerDir.x * stalkSpeed
+      vy = toPlayerDir.y * stalkSpeed
+      rollAngle = 0
+
+      if playerDistance <= chargeTriggerDistance:
+        state = "windup"
+        windupTimer = windupDuration
+        chargeDirection = toPlayerDir (fallback {0,1} if degenerate)
+        vx = 0; vy = 0
+
+    else if state == "windup":
+      vx = 0; vy = 0; rollAngle = 0
+      windupTimer -= dt
+      if windupTimer <= 0:
+        state = "charge"
+        chargeTimer = chargeDuration
+        chargeElapsed = 0
+        spinSign = +1 if chargeDirection.x >= 0 else -1
+        chargeSpinAmount = TAU * 1.4 * spinSign
+
+    else if state == "charge":
+      vx = chargeDirection.x * chargeSpeed
+      vy = chargeDirection.y * chargeSpeed
+      chargeElapsed += dt
+      chargeT = clamp(chargeElapsed / chargeDuration, 0, 1)
+      rollAngle = chargeSpinAmount * easeOutCubic(chargeT)
+
+      spawn trail every 0.016 sec:
+        sample life 0.34, alpha 0.24
+        cap trail length to 36
+
+      chargeTimer -= dt
+      if chargeTimer <= 0:
+        state = "recover"
+        recoverTimer = recoverDuration
+
+    else if state == "recover":
+      damp = max(0, 1 - dt * 10)
+      vx *= damp
+      vy *= damp
+      rollAngle = 0
+      recoverTimer -= dt
+      if recoverTimer <= 0:
+        state = "stalk"
+
+    knockbackDamp = max(0, 1 - dt * 7)
+    knockbackVX *= knockbackDamp
+    knockbackVY *= knockbackDamp
+
+    x += (vx + knockbackVX) * dt
+    y += (vy + knockbackVY) * dt
+
+    clamp enemy inside playfield bounds by half width/half height
+
+  isOverlappingPlayer(player):
+    combatReach = max(player.width, player.height) * 0.38 + hitRadius
+    return squaredDistance(player, enemy) <= combatReach^2
+
+  onPlayerContact(player, game):
+    if enemy dead: return
+    if player.action absent: return
+    if not overlapping player: return
+
+    if player.action.type == "dodge":
+      // dodge does no damage
+      return
+
+    if player.action.type != "charged": return
+    if hitCooldown > 0: return
+
+    awayFromHit = normalize(enemyPos - playerPos)
+    if tiny vector:
+      awayFromHit = player.action.direction OR fallback {0,1}
+
+    healthQuarters -= 1 (min 0)
+    hitFlashTimer = 0.09
+    hitCooldown = 0.16
+    stunTimer = stunDuration
+    state = "recover"
+    recoverTimer = recoverDuration
+
+    knockbackImpulse = 520
+    knockbackVX += awayFromHit.x * knockbackImpulse
+    knockbackVY += awayFromHit.y * knockbackImpulse
+
+    hitPoint = midpoint(playerPos, enemyPos)
+
+    game.particles.emit(hitPoint, count=12, config={
+      directional arc around awayFromHit angle,
+      speed 180..420,
+      life 0.15..0.35,
+      size 3..7,
+      colors white/yellow,
+      drag 5
+    })
+
+    game.flashRings.push({
+      x: hitX, y: hitY,
+      maxRadius: 80,
+      age: 0,
+      life: 0.25,
+      type: "shockwave"
+    })
+
+    game.triggerShake(6, 0.15)
+    game.triggerHitstop(0.05)
+    game.triggerTimeSlow(0.3, 0.15)
+
+    if healthQuarters <= 0:
+      alive = false
+
+      game.triggerShake(14, 0.3)
+      game.triggerHitstop(0.12)
+      game.triggerTimeSlow(0.55, 0.06)
+
+      game.flashRings.push({
+        x: enemy.x, y: enemy.y,
+        maxRadius: 120,
+        age: 0,
+        life: 0.4,
+        type: "deathFlash"
+      })
+
+      game.particles.emit(enemyPos, count=24, config={
+        full circle burst,
+        speed 100..350,
+        life 0.3..0.6,
+        size 4..10,
+        colors red/orange,
+        drag 3
+      })
+
+  draw(ctx, nowSeconds):
+    if dead: return
+
+    draw enemy trail triangles (red) with decaying alpha
+    draw two subtle shadow ellipses beneath enemy
+
+    fill color logic:
+      default red (#d62222)
+      if hitFlashTimer > 0 => white flash
+      else if state == "windup":
+        flicker between black and red using sin(nowSeconds * 36)
+
+    waddle = sin(waddleTime * 12) * 0.12 in stalk/recover, else 0
+    render triangle rotated by (waddle + rollAngle)
+
+========================================================================
+7) PARTICLE SYSTEM
+========================================================================
+
+CLASS ParticleSystem:
+  particles = []
+
+  emit(x, y, count, config):
+    repeat count times:
+      angle = baseAngle + random spread offset
+      speed = random in [minSpeed, maxSpeed]
+      life = random in [minLife, maxLife]
+      size = random in [minSize, maxSize]
+      color = random entry from config.colors
+      drag = config.drag or 0
+
+      particles.push({
+        x, y,
+        vx = cos(angle) * speed,
+        vy = sin(angle) * speed,
+        life,
+        maxLife = life,
+        size,
+        color,
+        drag
+      })
+
+  update(dt):
+    iterate particles in reverse:
+      if drag > 0:
+        damp = max(0, 1 - dt * drag)
+        vx *= damp
+        vy *= damp
+      x += vx * dt
+      y += vy * dt
+      life -= dt
+      remove particle when life <= 0
+
+  draw(ctx):
+    for each particle:
+      t = life / maxLife
+      currentSize = size * (0.3 + 0.7 * t)
+      alpha = t^2
+      draw oriented rectangle at particle position
+      orientation uses atan2(vy, vx)
+
+========================================================================
+8) GAME CLASS (WORLD, CAMERA, TIMESTEP, FX)
+========================================================================
+
+CLASS Game(canvas):
+  FIELDS:
+    canvas
+    ctx
+    view:
+      scale = 1
+      offsetX = 0
+      offsetY = 0
+    screen:
+      width = window.innerWidth
+      height = window.innerHeight
+
+    input = InputSystem(eventToWorld)
+    player = Player()
+    enemy = TriangleEnemy(GAME_WIDTH * 0.72, GAME_HEIGHT * 0.28)
+    particles = ParticleSystem()
+    flashRings = []
+
+    fixed loop timing:
+      lastTimestamp = 0
+      accumulator = 0
+      fixedStep = 1 / 120
+      maxFrame = 0.05
+
+    screenshake:
+      shakeTimer = 0
+      shakeDuration = 0
+      shakeIntensity = 0
+      shakeOffsetX = 0
+      shakeOffsetY = 0
+
+    hitstop:
+      hitstopTimer = 0
+
+    global time slow:
+      timeScale = 1
+      timeSlowTimer = 0
+      timeSlowDuration = 0
+      timeSlowMinScale = 0.15
+
+  constructor:
+    initialize fields
+    bind input to canvas
+    add resize listener
+    call resize()
+
+  resize():
+    dpr = max(1, devicePixelRatio)
+    screen.width = window.innerWidth
+    screen.height = window.innerHeight
+    canvas.width = floor(screen.width * dpr)
+    canvas.height = floor(screen.height * dpr)
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+
+    scale = min(screen.width / GAME_WIDTH, screen.height / GAME_HEIGHT)
+    view.scale = scale
+    view.offsetX = (screen.width  - GAME_WIDTH  * scale) * 0.5
+    view.offsetY = (screen.height - GAME_HEIGHT * scale) * 0.5
+
+  eventToWorld(event):
+    rect = canvas.getBoundingClientRect()
+    sx = event.clientX - rect.left
+    sy = event.clientY - rect.top
+    return {
+      x: (sx - view.offsetX) / view.scale,
+      y: (sy - view.offsetY) / view.scale
+    }
+
+  triggerShake(intensity, duration):
+    shakeIntensity = intensity
+    shakeDuration = duration
+    shakeTimer = duration
+
+  triggerHitstop(duration):
+    hitstopTimer = max(hitstopTimer, duration)
+
+  triggerTimeSlow(duration, minScale):
+    timeSlowDuration = duration
+    timeSlowTimer = duration
+    timeSlowMinScale = minScale
+
+  update(dt):
+    particles.update(dt)
+
+    age/prune flash rings:
+      ring.age += dt
+      remove when age >= life
+
+    update screenshake offsets:
+      if shakeTimer > 0:
+        shakeTimer -= dt
+        t = shakeTimer / shakeDuration
+        mag = shakeIntensity * t
+        shakeOffsetX = random(-1,1) * mag
+        shakeOffsetY = random(-1,1) * mag
+      else:
+        shakeOffsetX = 0
+        shakeOffsetY = 0
+
+    if hitstopTimer > 0:
+      hitstopTimer -= dt
+      return
+
+    nowSeconds = performance.now() in seconds
+    player.update(dt, input, nowSeconds)
+    enemy.update(dt, player)
+    enemy.onPlayerContact(player, this)
+
+  render():
+    clear whole screen
+    fill outer background #b3b3b3
+
+    save context
+    translate by view offsets
+    scale by view.scale
+    apply shake translate
+
+    draw playfield panel:
+      fill #d4d4d4
+      stroke border #b8b8b8
+
+    nowSeconds = performance.now() in seconds
+    holdDuration = input.getHoldDuration(nowSeconds)
+    chargeVisible = input.down AND holdDuration >= input.chargeStartDelay
+    chargeProgress = input.getChargeProgress(nowSeconds)
+
+    draw enemy
+    draw player
+    draw particles
+    draw flash rings:
+      t = age / life
+      radius = maxRadius * easeOutCubic(t)
+      alpha = 1 - t
+      if type == shockwave:
+        draw outlined white ring, shrinking line width
+      if type == deathFlash:
+        draw filled white expanding disc
+
+    draw bottom UI hint text:
+      "Swipe: short 180 dodge roll"
+      "Hold 0.1s + fill (0.3s), then swipe: 720 charged roll"
+
+    restore context
+
+  frame(timestamp):
+    if first frame:
+      lastTimestamp = timestamp
+
+    frameDt = (timestamp - lastTimestamp) / 1000
+    lastTimestamp = timestamp
+    frameDt = clamp(frameDt, 0, maxFrame)
+
+    if timeSlowTimer > 0:
+      timeSlowTimer -= frameDt
+      elapsed01 = 1 - (timeSlowTimer / timeSlowDuration)
+      // cubic recovery from minScale back to 1
+      timeScale = timeSlowMinScale + (1 - timeSlowMinScale) * (elapsed01^3)
+    else:
+      timeScale = 1
+
+    accumulator += frameDt * timeScale
+
+    while accumulator >= fixedStep:
+      update(fixedStep)
+      accumulator -= fixedStep
+
+    render()
+    requestAnimationFrame(frame)
+
+  start():
+    requestAnimationFrame(frame)
+
+========================================================================
+9) BOOTSTRAP
+========================================================================
+
+game = new Game(document.getElementById("gameCanvas"))
+game.start()
+
+========================================================================
+10) CURRENT GAMEPLAY SUMMARY (AS IMPLEMENTED)
+========================================================================
+
+Core interaction:
+  - Player performs short dodge (tap/short hold swipe) or charged attack (>= 0.4s hold + swipe)
+  - Triangle enemy stalks player, windups nearby, then performs high-speed charge
+
+Combat rules:
+  - Dodge action does not damage enemy
+  - Charged action damages enemy on overlap, once per cooldown window
+  - Enemy has 4 quarter-health hits before death
+
+Feedback systems:
+  - Player/Enemy trails during fast movement
+  - Enemy windup flicker, hit flash, knockback
+  - Hit particles + shockwave ring on successful charged hit
+  - Death burst particles + death flash ring
+  - Screenshake, hitstop, and temporary time-slow on impact
+
+Simulation model:
+  - Fixed-step update (120 Hz) with accumulator
+  - Frame delta clamp to avoid giant time jumps
+  - All movement/decay/timers use dt (not frame count)
+  - Responsive and deterministic feel across variable frame rates

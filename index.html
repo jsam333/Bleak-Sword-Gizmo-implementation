@@ -1,0 +1,1087 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Bleak Sword Gizmo Prototype</title>
+  <style>
+    :root {
+      color-scheme: light;
+    }
+
+    * {
+      box-sizing: border-box;
+      user-select: none;
+      -webkit-user-select: none;
+      -webkit-touch-callout: none;
+    }
+
+    html,
+    body {
+      margin: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #bdbdbd;
+      font-family: Arial, sans-serif;
+    }
+
+    #gameCanvas {
+      display: block;
+      width: 100vw;
+      height: 100vh;
+      touch-action: none;
+      background: #bdbdbd;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="gameCanvas"></canvas>
+  <script>
+    "use strict";
+
+    const GAME_WIDTH = 500;
+    const GAME_HEIGHT = 720;
+    const TAU = Math.PI * 2;
+
+    function clamp(value, min, max) {
+      return Math.max(min, Math.min(max, value));
+    }
+
+    function easeOutCubic(t) {
+      return 1 - Math.pow(1 - t, 3);
+    }
+
+    class Vec2 {
+      static add(a, b) {
+        return { x: a.x + b.x, y: a.y + b.y };
+      }
+
+      static sub(a, b) {
+        return { x: a.x - b.x, y: a.y - b.y };
+      }
+
+      static mul(a, scalar) {
+        return { x: a.x * scalar, y: a.y * scalar };
+      }
+
+      static length(v) {
+        return Math.hypot(v.x, v.y);
+      }
+
+      static normalize(v) {
+        const len = Vec2.length(v);
+        if (len <= 1e-7) {
+          return { x: 0, y: 0 };
+        }
+        return { x: v.x / len, y: v.y / len };
+      }
+    }
+
+    function hslToRgb(h, s, l) {
+      s /= 100;
+      l /= 100;
+      const c = (1 - Math.abs(2 * l - 1)) * s;
+      const x = c * (1 - Math.abs((h / 60) % 2 - 1));
+      const m = l - c / 2;
+      let r, g, b;
+      if (h < 60) { r = c; g = x; b = 0; }
+      else if (h < 120) { r = x; g = c; b = 0; }
+      else if (h < 180) { r = 0; g = c; b = x; }
+      else if (h < 240) { r = 0; g = x; b = c; }
+      else if (h < 300) { r = x; g = 0; b = c; }
+      else { r = c; g = 0; b = x; }
+      return {
+        r: Math.round((r + m) * 255),
+        g: Math.round((g + m) * 255),
+        b: Math.round((b + m) * 255)
+      };
+    }
+
+    class InputSystem {
+      constructor(getWorldPointer) {
+        this.getWorldPointer = getWorldPointer;
+        this.activePointerId = null;
+        this.down = false;
+        this.start = { x: 0, y: 0 };
+        this.current = { x: 0, y: 0 };
+        this.downTime = 0;
+        this.pendingSwipe = null;
+
+        this.minSwipeDistance = 14;
+        this.chargeStartDelay = 0.1;
+        this.chargeFillDuration = 0.2;
+        this.fullChargeThreshold = this.chargeStartDelay + this.chargeFillDuration;
+        this.chargeGraceThreshold = 0.75;  // swipe at 75%+ counts as charged attack
+      }
+
+      bind(canvas) {
+        canvas.addEventListener("pointerdown", (event) => this.onPointerDown(event));
+        canvas.addEventListener("pointermove", (event) => this.onPointerMove(event));
+        canvas.addEventListener("pointerup", (event) => this.onPointerUp(event));
+        canvas.addEventListener("pointercancel", (event) => this.onPointerUp(event));
+      }
+
+      isInPlayfield(point) {
+        return point.x >= 0 && point.x <= GAME_WIDTH && point.y >= 0 && point.y <= GAME_HEIGHT;
+      }
+
+      onPointerDown(event) {
+        if (this.down) {
+          return;
+        }
+
+        const world = this.getWorldPointer(event);
+        if (!world || !this.isInPlayfield(world)) {
+          return;
+        }
+
+        this.down = true;
+        this.activePointerId = event.pointerId;
+        this.start = world;
+        this.current = world;
+        this.downTime = performance.now() * 0.001;
+        this.pendingSwipe = null;
+      }
+
+      onPointerMove(event) {
+        if (!this.down || event.pointerId !== this.activePointerId) {
+          return;
+        }
+        const world = this.getWorldPointer(event);
+        if (!world) {
+          return;
+        }
+        this.current = world;
+      }
+
+      onPointerUp(event) {
+        if (!this.down || event.pointerId !== this.activePointerId) {
+          return;
+        }
+
+        const world = this.getWorldPointer(event);
+        const releasePos = world || this.current;
+        const now = performance.now() * 0.001;
+        const holdDuration = now - this.downTime;
+        const swipeVec = Vec2.sub(releasePos, this.start);
+        const swipeDistance = Vec2.length(swipeVec);
+
+        if (swipeDistance >= this.minSwipeDistance) {
+          const chargeAtRelease = holdDuration < this.chargeStartDelay ? 0
+            : clamp((holdDuration - this.chargeStartDelay) / this.chargeFillDuration, 0, 1);
+          this.pendingSwipe = {
+            direction: Vec2.normalize(swipeVec),
+            distance: swipeDistance,
+            holdDuration,
+            fullyCharged: chargeAtRelease >= this.chargeGraceThreshold
+          };
+        }
+
+        this.down = false;
+        this.activePointerId = null;
+      }
+
+      consumeSwipe() {
+        const swipe = this.pendingSwipe;
+        this.pendingSwipe = null;
+        return swipe;
+      }
+
+      getHoldDuration(nowSeconds) {
+        if (!this.down) {
+          return 0;
+        }
+        return nowSeconds - this.downTime;
+      }
+
+      getChargeProgress(nowSeconds) {
+        const hold = this.getHoldDuration(nowSeconds);
+        if (hold < this.chargeStartDelay) {
+          return 0;
+        }
+        return clamp((hold - this.chargeStartDelay) / this.chargeFillDuration, 0, 1);
+      }
+    }
+
+    class Player {
+      constructor() {
+        this.x = GAME_WIDTH * 0.5;
+        this.y = GAME_HEIGHT * 0.5;
+        this.vx = 0;
+        this.vy = 0;
+
+        this.width = 10.08;  // 14 * 0.6 * 1.2 (40% smaller, then 20% bigger)
+        this.height = 43.2;  // 60 * 0.6 * 1.2
+        this.baseAngle = 0;
+        this.spinAngle = 0;
+
+        this.action = null;
+        this.trail = [];
+        this.trailSpawnTimer = 0;
+        this.stains = [];
+      }
+
+      startMove(type, direction) {
+        const dir = Vec2.normalize(direction);
+        const horizontalSign = dir.x >= 0 ? 1 : -1;
+
+        const isDodge = type === "dodge";
+        const duration = isDodge ? 0.12 : 0.2;
+        const travel = isDodge ? 78 : 150;
+        const spins = isDodge ? Math.PI * 0.8 * horizontalSign : TAU * 2 * horizontalSign;
+
+        this.action = {
+          type,
+          direction: dir,
+          duration,
+          elapsed: 0,
+          travel,
+          spins,
+          startAngle: 0,
+          prevTravelT: 0
+        };
+      }
+
+      update(dt, input, nowSeconds) {
+        const swipe = input.consumeSwipe();
+        if (swipe) {
+          const type = swipe.fullyCharged ? "charged" : "dodge";
+          this.startMove(type, swipe.direction);
+        }
+
+        if (this.action) {
+          const frameStartX = this.x;
+          const frameStartY = this.y;
+          const frameStartAngle = this.spinAngle;
+          this.action.elapsed += dt;
+          const t = clamp(this.action.elapsed / this.action.duration, 0, 1);
+          if (this.action.type === "charged") {
+            const travelT = easeOutCubic(t);
+            const deltaTravel = (travelT - this.action.prevTravelT) * this.action.travel;
+            this.action.prevTravelT = travelT;
+            const moveX = this.action.direction.x * deltaTravel;
+            const moveY = this.action.direction.y * deltaTravel;
+            this.x += moveX;
+            this.y += moveY;
+            if (dt > 1e-7) {
+              this.vx = moveX / dt;
+              this.vy = moveY / dt;
+            } else {
+              this.vx = 0;
+              this.vy = 0;
+            }
+          } else {
+            const speed = this.action.travel / this.action.duration;
+            this.vx = this.action.direction.x * speed;
+            this.vy = this.action.direction.y * speed;
+          }
+          this.spinAngle = this.action.startAngle + this.action.spins * easeOutCubic(t);
+
+          const trailInterval = this.action.type === "charged" ? 0.0064 : 0.016;
+          this.trailSpawnTimer += dt;
+          while (this.trailSpawnTimer >= trailInterval) {
+            const sampleTimeInFrame = dt - (this.trailSpawnTimer - trailInterval);
+            const sampleT = dt > 1e-7 ? clamp(sampleTimeInFrame / dt, 0, 1) : 1;
+            const sampleX = frameStartX + (this.x - frameStartX) * sampleT;
+            const sampleY = frameStartY + (this.y - frameStartY) * sampleT;
+            const sampleAngle = frameStartAngle + (this.spinAngle - frameStartAngle) * sampleT;
+            this.trailSpawnTimer -= trailInterval;
+            const prev = this.trail[this.trail.length - 1];
+            if (prev) {
+              const dx = prev.x - sampleX;
+              const dy = prev.y - sampleY;
+              const da = Math.abs(prev.angle - sampleAngle);
+              if (dx * dx + dy * dy < 0.01 && da < 0.01) {
+                continue;
+              }
+            }
+            this.trail.push({
+              x: sampleX,
+              y: sampleY,
+              angle: sampleAngle,
+              age: 0,
+              life: this.action.type === "dodge" ? 0.32 : 0.44,
+              alpha: this.action.type === "dodge" ? 0.2 : 0.3
+            });
+            if (this.trail.length > 48) {
+              this.trail.shift();
+            }
+          }
+
+          if (this.action.elapsed >= this.action.duration) {
+            this.action = null;
+            this.vx = 0;
+            this.vy = 0;
+            this.spinAngle = 0;
+          }
+        } else {
+          this.vx *= Math.max(0, 1 - dt * 18);
+          this.vy *= Math.max(0, 1 - dt * 18);
+          this.spinAngle = 0;
+        }
+
+        if (!this.action || this.action.type !== "charged") {
+          this.x += this.vx * dt;
+          this.y += this.vy * dt;
+        }
+
+        const halfW = this.width * 0.5;
+        const halfH = this.height * 0.5;
+        this.x = clamp(this.x, halfW, GAME_WIDTH - halfW);
+        this.y = clamp(this.y, halfH, GAME_HEIGHT - halfH);
+
+        for (let i = this.trail.length - 1; i >= 0; i -= 1) {
+          const sample = this.trail[i];
+          sample.age += dt;
+          if (sample.age >= sample.life) {
+            this.trail.splice(i, 1);
+          }
+        }
+
+      }
+
+      draw(ctx, chargeProgress, chargeVisible) {
+        for (let i = 0; i < this.trail.length; i += 1) {
+          const t = this.trail[i];
+          const alpha = (1 - t.age / t.life) * t.alpha;
+          ctx.save();
+          ctx.globalAlpha = alpha;
+          ctx.translate(t.x, t.y);
+          ctx.rotate(t.angle);
+          ctx.fillStyle = "#ffffff";
+          ctx.fillRect(-this.width * 0.5, -this.height * 0.5, this.width, this.height);
+          ctx.restore();
+        }
+
+        if (this.action && this.action.type === "charged") {
+          const ringScale = 1.1;
+          const ringLineWidth = 5 * ringScale;  // thinner ring
+          const ringOuterRadius = this.height * 0.5 * ringScale;
+          const ringRadius = ringOuterRadius - ringLineWidth * 0.5;
+          ctx.save();
+          ctx.strokeStyle = "#ffffff";
+          ctx.lineWidth = ringLineWidth;
+          ctx.beginPath();
+          ctx.arc(this.x, this.y, ringRadius, 0, TAU);
+          ctx.stroke();
+          ctx.restore();
+        }
+
+        const shadowY = this.y + this.height * 0.5 + 1.5;
+        ctx.save();
+        ctx.fillStyle = "rgba(0, 0, 0, 0.14)";
+        ctx.beginPath();
+        ctx.ellipse(this.x, shadowY, this.width * 0.56, 2.2, 0, 0, TAU);
+        ctx.fill();
+        ctx.fillStyle = "rgba(0, 0, 0, 0.07)";
+        ctx.beginPath();
+        ctx.ellipse(this.x, shadowY + 0.2, this.width * 0.78, 3.3, 0, 0, TAU);
+        ctx.fill();
+        ctx.restore();
+
+        ctx.save();
+        ctx.translate(this.x, this.y);
+        ctx.rotate(this.spinAngle);
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(-this.width * 0.5, -this.height * 0.5, this.width, this.height);
+        if (this.stains.length > 0) {
+          ctx.save();
+          ctx.beginPath();
+          ctx.rect(-this.width * 0.5, -this.height * 0.5, this.width, this.height);
+          ctx.clip();
+          for (let i = 0; i < this.stains.length; i++) {
+            const s = this.stains[i];
+            ctx.globalAlpha = s.alpha;
+            ctx.fillStyle = `rgb(${s.r},${s.g},${s.b})`;
+            ctx.beginPath();
+            ctx.arc(s.localX, s.localY, s.radius, 0, TAU);
+            ctx.fill();
+          }
+          ctx.restore();
+        }
+        ctx.restore();
+
+        if (chargeVisible && !this.action) {
+          const ringScale = 1.1;
+          const chargeBarLineWidth = 3;
+          const chargeBarOuterRadius = this.height * 0.5 * ringScale;  // same as attack circle
+          const chargeBarRadius = chargeBarOuterRadius - chargeBarLineWidth * 0.5;
+          ctx.save();
+          ctx.translate(this.x, this.y);
+          ctx.lineWidth = chargeBarLineWidth;
+          ctx.strokeStyle = "#ffffff";
+          ctx.beginPath();
+          ctx.arc(0, 0, chargeBarRadius, -Math.PI / 2, -Math.PI / 2 + TAU * chargeProgress);
+          ctx.stroke();
+          ctx.restore();
+        }
+      }
+    }
+
+    class TriangleEnemy {
+      constructor(x, y) {
+        this.x = x;
+        this.y = y;
+        this.vx = 0;
+        this.vy = 0;
+        this.knockbackVX = 0;
+        this.knockbackVY = 0;
+
+        this.width = 33;     // 44 * 0.75 (25% smaller)
+        this.height = 30;    // 40 * 0.75
+        this.hitRadius = 18; // 24 * 0.75
+
+        this.maxHealthQuarters = 4;
+        this.healthQuarters = this.maxHealthQuarters;
+        this.alive = true;
+
+        this.state = "stalk";
+        this.chargeTriggerDistance = 75;
+        this.windupDuration = 0.57;
+        this.chargeDuration = 0.256;
+        this.recoverDuration = 0.3;
+        this.windupTimer = 0;
+        this.chargeTimer = 0;
+        this.recoverTimer = 0;
+        this.chargeDirection = { x: 0, y: 0 };
+
+        this.stalkSpeed = 36;
+        this.chargeSpeed = 560;
+        this.waddleTime = 0;
+        this.hitCooldown = 0;
+        this.hitFlashTimer = 0;
+        this.stunTimer = 0;
+        this.stunDuration = 0.32;
+        this.rollAngle = 0;
+        this.chargeSpinAmount = TAU * 1.4;
+        this.chargeElapsed = 0;
+        this.trail = [];
+        this.trailSpawnTimer = 0;
+      }
+
+      update(dt, player) {
+        if (!this.alive) {
+          return;
+        }
+
+        this.waddleTime += dt;
+        this.hitCooldown = Math.max(0, this.hitCooldown - dt);
+        this.hitFlashTimer = Math.max(0, this.hitFlashTimer - dt);
+        this.stunTimer = Math.max(0, this.stunTimer - dt);
+
+        for (let i = this.trail.length - 1; i >= 0; i -= 1) {
+          const sample = this.trail[i];
+          sample.age += dt;
+          if (sample.age >= sample.life) {
+            this.trail.splice(i, 1);
+          }
+        }
+
+        const toPlayer = Vec2.sub({ x: player.x, y: player.y }, { x: this.x, y: this.y });
+        const playerDistance = Vec2.length(toPlayer);
+        const toPlayerDir = playerDistance > 1e-5 ? Vec2.mul(toPlayer, 1 / playerDistance) : { x: 0, y: 0 };
+
+        if (this.stunTimer > 0) {
+          this.vx = 0;
+          this.vy = 0;
+          this.rollAngle = 0;
+        } else if (this.state === "stalk") {
+          this.vx = toPlayerDir.x * this.stalkSpeed;
+          this.vy = toPlayerDir.y * this.stalkSpeed;
+          this.rollAngle = 0;
+          if (playerDistance <= this.chargeTriggerDistance) {
+            this.state = "windup";
+            this.windupTimer = this.windupDuration;
+            this.chargeDirection = toPlayerDir;
+            if (Vec2.length(this.chargeDirection) <= 1e-7) {
+              this.chargeDirection = { x: 0, y: 1 };
+            }
+            this.vx = 0;
+            this.vy = 0;
+          }
+        } else if (this.state === "windup") {
+          this.vx = 0;
+          this.vy = 0;
+          this.rollAngle = 0;
+          this.windupTimer -= dt;
+          if (this.windupTimer <= 0) {
+            this.state = "charge";
+            this.chargeTimer = this.chargeDuration;
+            this.chargeElapsed = 0;
+            const spinSign = this.chargeDirection.x >= 0 ? 1 : -1;
+            this.chargeSpinAmount = TAU * 1.4 * spinSign;
+          }
+        } else if (this.state === "charge") {
+          this.vx = this.chargeDirection.x * this.chargeSpeed;
+          this.vy = this.chargeDirection.y * this.chargeSpeed;
+          this.chargeElapsed += dt;
+          const chargeT = clamp(this.chargeElapsed / this.chargeDuration, 0, 1);
+          this.rollAngle = this.chargeSpinAmount * easeOutCubic(chargeT);
+          this.trailSpawnTimer += dt;
+          while (this.trailSpawnTimer >= 0.016) {
+            this.trailSpawnTimer -= 0.016;
+            this.trail.push({
+              x: this.x,
+              y: this.y,
+              angle: this.rollAngle,
+              age: 0,
+              life: 0.34,
+              alpha: 0.24
+            });
+            if (this.trail.length > 36) {
+              this.trail.shift();
+            }
+          }
+          this.chargeTimer -= dt;
+          if (this.chargeTimer <= 0) {
+            this.state = "recover";
+            this.recoverTimer = this.recoverDuration;
+          }
+        } else if (this.state === "recover") {
+          const damp = Math.max(0, 1 - dt * 10);
+          this.vx *= damp;
+          this.vy *= damp;
+          this.rollAngle = 0;
+          this.recoverTimer -= dt;
+          if (this.recoverTimer <= 0) {
+            this.state = "stalk";
+          }
+        }
+
+        const knockbackDamp = Math.max(0, 1 - dt * 7);
+        this.knockbackVX *= knockbackDamp;
+        this.knockbackVY *= knockbackDamp;
+
+        this.x += (this.vx + this.knockbackVX) * dt;
+        this.y += (this.vy + this.knockbackVY) * dt;
+
+        const halfW = this.width * 0.5;
+        const halfH = this.height * 0.5;
+        this.x = clamp(this.x, halfW, GAME_WIDTH - halfW);
+        this.y = clamp(this.y, halfH, GAME_HEIGHT - halfH);
+      }
+
+      isOverlappingPlayer(player) {
+        const combatReach = Math.max(player.width, player.height) * 0.38 + this.hitRadius;
+        const dx = this.x - player.x;
+        const dy = this.y - player.y;
+        return dx * dx + dy * dy <= combatReach * combatReach;
+      }
+
+      onPlayerContact(player, game) {
+        if (!this.alive || !player.action || !this.isOverlappingPlayer(player)) {
+          return;
+        }
+
+        if (player.action.type === "dodge") {
+          return;
+        }
+
+        if (player.action.type !== "charged" || this.hitCooldown > 0) {
+          return;
+        }
+
+        let awayFromHit = Vec2.sub({ x: this.x, y: this.y }, { x: player.x, y: player.y });
+        awayFromHit = Vec2.normalize(awayFromHit);
+        if (Vec2.length(awayFromHit) <= 1e-7) {
+          awayFromHit = player.action.direction || { x: 0, y: 1 };
+        }
+
+        this.healthQuarters = Math.max(0, this.healthQuarters - 1);
+        this.hitFlashTimer = 0.09;
+        this.hitCooldown = 0.16;
+        this.stunTimer = this.stunDuration;
+        this.state = "recover";
+        this.recoverTimer = this.recoverDuration;
+
+        const knockbackImpulse = 520;
+        this.knockbackVX += awayFromHit.x * knockbackImpulse;
+        this.knockbackVY += awayFromHit.y * knockbackImpulse;
+
+        const hitX = (this.x + player.x) * 0.5;
+        const hitY = (this.y + player.y) * 0.5;
+
+        game.particles.emit(hitX, hitY, 12, {
+          baseAngle: Math.atan2(awayFromHit.y, awayFromHit.x),
+          spread: Math.PI * 0.8,
+          minSpeed: 180, maxSpeed: 420,
+          minLife: 0.15, maxLife: 0.35,
+          minSize: 3, maxSize: 7,
+          colors: ["#ffffff", "#ffffaa", "#ffdd66"],
+          drag: 5
+        });
+
+        game.flashRings.push({
+          x: hitX, y: hitY,
+          maxRadius: 80,
+          age: 0,
+          life: 0.25,
+          type: "shockwave"
+        });
+
+        game.triggerShake(6, 0.15);
+        game.triggerHitstop(0.05);
+        game.triggerTimeSlow(0.3, 0.15);
+
+        if (this.healthQuarters <= 0) {
+          this.alive = false;
+
+          game.triggerShake(14, 0.3);
+          game.triggerHitstop(0.12);
+          game.triggerTimeSlow(0.55, 0.06);
+
+          game.flashRings.push({
+            x: this.x, y: this.y,
+            maxRadius: 120,
+            age: 0,
+            life: 0.4,
+            type: "deathFlash"
+          });
+
+          game.particles.emit(this.x, this.y, 24, {
+            baseAngle: 0,
+            spread: TAU,
+            minSpeed: 100, maxSpeed: 350,
+            minLife: 0.3, maxLife: 0.6,
+            minSize: 4, maxSize: 10,
+            colors: ["#d62222", "#ff4444", "#ff8800", "#ffaa22"],
+            drag: 3
+          });
+
+          game.rainbowParticles.emit(this.x, this.y, 150 + Math.floor(Math.random() * 51));
+        }
+      }
+
+      draw(ctx, nowSeconds) {
+        if (!this.alive) {
+          return;
+        }
+
+        const ratEmoji = "🐀";
+        const ratFontSize = this.height * 1.2;
+        for (let i = 0; i < this.trail.length; i += 1) {
+          const t = this.trail[i];
+          const alpha = (1 - t.age / t.life) * t.alpha;
+          ctx.save();
+          ctx.globalAlpha = alpha;
+          ctx.translate(t.x, t.y);
+          ctx.rotate(t.angle);
+          ctx.font = `${ratFontSize}px sans-serif`;
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.fillText(ratEmoji, 0, 0);
+          ctx.restore();
+        }
+
+        const shadowY = this.y + this.height * 0.35 - 3.5;
+        ctx.save();
+        ctx.fillStyle = "rgba(0, 0, 0, 0.14)";
+        ctx.beginPath();
+        ctx.ellipse(this.x, shadowY, this.width * 0.5, 2.2, 0, 0, TAU);
+        ctx.fill();
+        ctx.fillStyle = "rgba(0, 0, 0, 0.07)";
+        ctx.beginPath();
+        ctx.ellipse(this.x, shadowY + 0.2, this.width * 0.7, 3.2, 0, 0, TAU);
+        ctx.fill();
+        ctx.restore();
+
+        let waddle = 0;
+        if (this.state === "stalk" || this.state === "recover") {
+          waddle = Math.sin(this.waddleTime * 12) * 0.12;
+        }
+
+        ctx.save();
+        if (this.hitFlashTimer > 0) {
+          ctx.globalAlpha = 0.5 + 0.5 * Math.sin(nowSeconds * 40);
+        } else if (this.state === "windup") {
+          const flashOn = Math.sin(nowSeconds * 36) > 0;
+          ctx.globalAlpha = flashOn ? 0.4 : 1;
+        }
+        ctx.translate(this.x, this.y);
+        ctx.rotate(waddle + this.rollAngle);
+        ctx.font = `${ratFontSize}px sans-serif`;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(ratEmoji, 0, 0);
+        ctx.restore();
+      }
+    }
+
+    class ParticleSystem {
+      constructor() {
+        this.particles = [];
+      }
+
+      emit(x, y, count, config) {
+        for (let i = 0; i < count; i++) {
+          const angle = config.baseAngle + (Math.random() - 0.5) * config.spread;
+          const speed = config.minSpeed + Math.random() * (config.maxSpeed - config.minSpeed);
+          const life = config.minLife + Math.random() * (config.maxLife - config.minLife);
+          const size = config.minSize + Math.random() * (config.maxSize - config.minSize);
+          this.particles.push({
+            x, y,
+            vx: Math.cos(angle) * speed,
+            vy: Math.sin(angle) * speed,
+            life,
+            maxLife: life,
+            size,
+            color: config.colors[Math.floor(Math.random() * config.colors.length)],
+            drag: config.drag || 0
+          });
+        }
+      }
+
+      update(dt) {
+        for (let i = this.particles.length - 1; i >= 0; i--) {
+          const p = this.particles[i];
+          if (p.drag > 0) {
+            const damp = Math.max(0, 1 - dt * p.drag);
+            p.vx *= damp;
+            p.vy *= damp;
+          }
+          p.x += p.vx * dt;
+          p.y += p.vy * dt;
+          p.life -= dt;
+          if (p.life <= 0) {
+            this.particles.splice(i, 1);
+          }
+        }
+      }
+
+      draw(ctx) {
+        for (let i = 0; i < this.particles.length; i++) {
+          const p = this.particles[i];
+          const t = p.life / p.maxLife;
+          const currentSize = p.size * (0.3 + 0.7 * t);
+          ctx.save();
+          ctx.globalAlpha = t * t;
+          ctx.fillStyle = p.color;
+          ctx.translate(p.x, p.y);
+          ctx.rotate(Math.atan2(p.vy, p.vx));
+          ctx.fillRect(-currentSize * 0.5, -currentSize * 0.3, currentSize, currentSize * 0.6);
+          ctx.restore();
+        }
+      }
+    }
+
+    class RainbowDeathParticleSystem {
+      constructor() {
+        this.particles = [];
+      }
+
+      emit(x, y, count) {
+        for (let i = 0; i < count; i++) {
+          const angle = Math.random() * TAU;
+          const speed = 120 + Math.random() * 400;
+          const hue = Math.random() * 360;
+          const color = hslToRgb(hue, 100, 50);
+          this.particles.push({
+            x, y,
+            z: 0,
+            vx: Math.cos(angle) * speed,
+            vy: Math.sin(angle) * speed,
+            vz: 250 + Math.random() * 250,
+            r: color.r, g: color.g, b: color.b,
+            size: 3 + Math.random() * 5,
+            gravity: 600,
+            bounciness: 0.5 + Math.random() * 0.2,
+            drag: 1.5
+          });
+        }
+      }
+
+      update(dt, player, groundSplotches) {
+        for (let i = this.particles.length - 1; i >= 0; i--) {
+          const p = this.particles[i];
+
+          p.vz -= p.gravity * dt;
+
+          const damp = Math.max(0, 1 - p.drag * dt);
+          p.vx *= damp;
+          p.vy *= damp;
+
+          p.x += p.vx * dt;
+          p.y += p.vy * dt;
+          p.z += p.vz * dt;
+
+          if (p.x < 0) { p.x = -p.x; p.vx = Math.abs(p.vx) * p.bounciness; }
+          else if (p.x > GAME_WIDTH) { p.x = 2 * GAME_WIDTH - p.x; p.vx = -Math.abs(p.vx) * p.bounciness; }
+          if (p.y < 0) { p.y = -p.y; p.vy = Math.abs(p.vy) * p.bounciness; }
+          else if (p.y > GAME_HEIGHT) { p.y = 2 * GAME_HEIGHT - p.y; p.vy = -Math.abs(p.vy) * p.bounciness; }
+
+          if (p.z <= 0 && p.vz < 0) {
+            const halfW = player.width * 0.5;
+            const halfH = player.height * 0.5;
+            if (p.x >= player.x - halfW && p.x <= player.x + halfW &&
+                p.y >= player.y - halfH && p.y <= player.y + halfH) {
+              player.stains.push({
+                localX: p.x - player.x,
+                localY: p.y - player.y,
+                r: p.r, g: p.g, b: p.b,
+                radius: p.size * (1.0 + Math.random()),
+                alpha: 0.4 + Math.random() * 0.2
+              });
+            } else {
+              groundSplotches.push({
+                x: p.x, y: p.y,
+                r: p.r, g: p.g, b: p.b,
+                radius: p.size * (1.5 + Math.random() * 1.5),
+                alpha: 0.35 + Math.random() * 0.15
+              });
+            }
+            this.particles.splice(i, 1);
+          }
+        }
+      }
+
+      draw(ctx) {
+        for (let i = 0; i < this.particles.length; i++) {
+          const p = this.particles[i];
+          const visualY = p.y - p.z * 0.7;
+          const scale = 1 + p.z * 0.002;
+          const currentSize = p.size * scale;
+          ctx.save();
+          ctx.globalAlpha = 0.85;
+          ctx.fillStyle = `rgb(${p.r},${p.g},${p.b})`;
+          ctx.beginPath();
+          ctx.arc(p.x, visualY, currentSize, 0, TAU);
+          ctx.fill();
+          ctx.restore();
+        }
+      }
+    }
+
+    class Game {
+      constructor(canvas) {
+        this.canvas = canvas;
+        this.ctx = canvas.getContext("2d");
+        this.view = {
+          scale: 1,
+          offsetX: 0,
+          offsetY: 0
+        };
+        this.screen = {
+          width: window.innerWidth,
+          height: window.innerHeight
+        };
+
+        this.input = new InputSystem((event) => this.eventToWorld(event));
+        this.input.bind(canvas);
+        this.player = new Player();
+        this.enemy = new TriangleEnemy(GAME_WIDTH * 0.72, GAME_HEIGHT * 0.28);
+
+        this.lastTimestamp = 0;
+        this.accumulator = 0;
+        this.fixedStep = 1 / 120;
+        this.maxFrame = 0.05;
+
+        this.shakeTimer = 0;
+        this.shakeDuration = 0;
+        this.shakeIntensity = 0;
+        this.shakeOffsetX = 0;
+        this.shakeOffsetY = 0;
+
+        this.hitstopTimer = 0;
+
+        this.timeScale = 1;
+        this.timeSlowTimer = 0;
+        this.timeSlowDuration = 0;
+        this.timeSlowMinScale = 0.15;
+
+        this.particles = new ParticleSystem();
+        this.rainbowParticles = new RainbowDeathParticleSystem();
+        this.flashRings = [];
+        this.groundSplotches = [];
+
+        window.addEventListener("resize", () => this.resize());
+        this.resize();
+      }
+
+      resize() {
+        const dpr = Math.max(1, window.devicePixelRatio || 1);
+        this.screen.width = window.innerWidth;
+        this.screen.height = window.innerHeight;
+        this.canvas.width = Math.floor(this.screen.width * dpr);
+        this.canvas.height = Math.floor(this.screen.height * dpr);
+        this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+        const scale = Math.min(this.screen.width / GAME_WIDTH, this.screen.height / GAME_HEIGHT);
+        this.view.scale = scale;
+        this.view.offsetX = (this.screen.width - GAME_WIDTH * scale) * 0.5;
+        this.view.offsetY = (this.screen.height - GAME_HEIGHT * scale) * 0.5;
+      }
+
+      eventToWorld(event) {
+        const rect = this.canvas.getBoundingClientRect();
+        const sx = event.clientX - rect.left;
+        const sy = event.clientY - rect.top;
+        return {
+          x: (sx - this.view.offsetX) / this.view.scale,
+          y: (sy - this.view.offsetY) / this.view.scale
+        };
+      }
+
+      triggerShake(intensity, duration) {
+        this.shakeIntensity = intensity;
+        this.shakeDuration = duration;
+        this.shakeTimer = duration;
+      }
+
+      triggerHitstop(duration) {
+        this.hitstopTimer = Math.max(this.hitstopTimer, duration);
+      }
+
+      triggerTimeSlow(duration, minScale) {
+        this.timeSlowDuration = duration;
+        this.timeSlowTimer = duration;
+        this.timeSlowMinScale = minScale;
+      }
+
+      update(dt) {
+        this.particles.update(dt);
+        this.rainbowParticles.update(dt, this.player, this.groundSplotches);
+
+        for (let i = this.flashRings.length - 1; i >= 0; i--) {
+          this.flashRings[i].age += dt;
+          if (this.flashRings[i].age >= this.flashRings[i].life) {
+            this.flashRings.splice(i, 1);
+          }
+        }
+
+        if (this.shakeTimer > 0) {
+          this.shakeTimer = Math.max(0, this.shakeTimer - dt);
+          const t = this.shakeTimer / this.shakeDuration;
+          const mag = this.shakeIntensity * t;
+          this.shakeOffsetX = (Math.random() * 2 - 1) * mag;
+          this.shakeOffsetY = (Math.random() * 2 - 1) * mag;
+        } else {
+          this.shakeOffsetX = 0;
+          this.shakeOffsetY = 0;
+        }
+
+        if (this.hitstopTimer > 0) {
+          this.hitstopTimer = Math.max(0, this.hitstopTimer - dt);
+          return;
+        }
+
+        const nowSeconds = performance.now() * 0.001;
+        this.player.update(dt, this.input, nowSeconds);
+        this.enemy.update(dt, this.player);
+        this.enemy.onPlayerContact(this.player, this);
+      }
+
+      render() {
+        const ctx = this.ctx;
+        const w = this.screen.width;
+        const h = this.screen.height;
+
+        ctx.clearRect(0, 0, w, h);
+
+        ctx.fillStyle = "#b3b3b3";
+        ctx.fillRect(0, 0, w, h);
+
+        ctx.save();
+        ctx.translate(this.view.offsetX, this.view.offsetY);
+        ctx.scale(this.view.scale, this.view.scale);
+        ctx.translate(this.shakeOffsetX, this.shakeOffsetY);
+
+        ctx.fillStyle = "#d4d4d4";
+        ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
+
+        ctx.strokeStyle = "#b8b8b8";
+        ctx.lineWidth = 2;
+        ctx.strokeRect(1, 1, GAME_WIDTH - 2, GAME_HEIGHT - 2);
+
+        for (let i = 0; i < this.groundSplotches.length; i++) {
+          const s = this.groundSplotches[i];
+          ctx.save();
+          ctx.globalAlpha = s.alpha;
+          ctx.fillStyle = `rgb(${s.r},${s.g},${s.b})`;
+          ctx.beginPath();
+          ctx.arc(s.x, s.y, s.radius, 0, TAU);
+          ctx.fill();
+          ctx.restore();
+        }
+
+        const nowSeconds = performance.now() * 0.001;
+        const holdDuration = this.input.getHoldDuration(nowSeconds);
+        const chargeVisible = this.input.down && holdDuration >= this.input.chargeStartDelay;
+        const chargeProgress = this.input.getChargeProgress(nowSeconds);
+        this.enemy.draw(ctx, nowSeconds);
+        this.player.draw(ctx, chargeProgress, chargeVisible);
+
+        this.particles.draw(ctx);
+        this.rainbowParticles.draw(ctx);
+
+        for (let i = 0; i < this.flashRings.length; i++) {
+          const ring = this.flashRings[i];
+          const t = ring.age / ring.life;
+          const radius = ring.maxRadius * easeOutCubic(t);
+          const alpha = 1 - t;
+
+          ctx.save();
+          ctx.globalAlpha = alpha;
+
+          if (ring.type === "shockwave") {
+            ctx.strokeStyle = "#ffffff";
+            ctx.lineWidth = Math.max(0.5, 4 * (1 - t));
+            ctx.beginPath();
+            ctx.arc(ring.x, ring.y, radius, 0, TAU);
+            ctx.stroke();
+          } else if (ring.type === "deathFlash") {
+            ctx.fillStyle = "#ffffff";
+            ctx.beginPath();
+            ctx.arc(ring.x, ring.y, radius, 0, TAU);
+            ctx.fill();
+          }
+
+          ctx.restore();
+        }
+
+        ctx.fillStyle = "#6a6a6a";
+        ctx.font = "12px Arial";
+        ctx.textAlign = "center";
+        ctx.fillText("Swipe: short 180 dodge roll", GAME_WIDTH * 0.5, GAME_HEIGHT - 34);
+        ctx.fillText("Hold 0.1s + fill (0.2s), then swipe: 720 charged roll", GAME_WIDTH * 0.5, GAME_HEIGHT - 16);
+
+        ctx.restore();
+      }
+
+      frame = (timestamp) => {
+        if (!this.lastTimestamp) {
+          this.lastTimestamp = timestamp;
+        }
+
+        let frameDt = (timestamp - this.lastTimestamp) / 1000;
+        this.lastTimestamp = timestamp;
+        frameDt = clamp(frameDt, 0, this.maxFrame);
+
+        if (this.timeSlowTimer > 0) {
+          this.timeSlowTimer = Math.max(0, this.timeSlowTimer - frameDt);
+          const elapsed = 1 - (this.timeSlowTimer / this.timeSlowDuration);
+          this.timeScale = this.timeSlowMinScale + (1 - this.timeSlowMinScale) * (elapsed * elapsed * elapsed);
+        } else {
+          this.timeScale = 1;
+        }
+
+        this.accumulator += frameDt * this.timeScale;
+        while (this.accumulator >= this.fixedStep) {
+          this.update(this.fixedStep);
+          this.accumulator -= this.fixedStep;
+        }
+
+        this.render();
+        requestAnimationFrame(this.frame);
+      };
+
+      start() {
+        requestAnimationFrame(this.frame);
+      }
+    }
+
+    const game = new Game(document.getElementById("gameCanvas"));
+    game.start();
+  </script>
+</body>
+</html>
