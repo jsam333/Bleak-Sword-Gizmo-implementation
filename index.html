@@ -43,6 +43,106 @@
     const GAME_WIDTH = 500;
     const GAME_HEIGHT = 720;
     const TAU = Math.PI * 2;
+    const EPSILON = 1e-7;
+
+    const INPUT_CFG = {
+      minSwipeDistance: 14,
+      chargeStartDelay: 0.1,
+      chargeFillDuration: 0.2,
+      chargeGraceThreshold: 0.75
+    };
+
+    const PLAYER_CFG = {
+      width: 10.08,
+      height: 43.2,
+      maxHealth: 4,
+      iframeDuration: 0.5,
+      hitFlashDuration: 0.3,
+      dodgeDuration: 0.12,
+      chargedDuration: 0.2,
+      dodgeTravel: 78,
+      chargedTravel: 150,
+      dodgeSpin: Math.PI * 0.8,
+      chargedSpin: TAU * 2,
+      chargedTrailInterval: 0.0064,
+      dodgeTrailInterval: 0.016,
+      dodgeTrailLife: 0.32,
+      chargedTrailLife: 0.44,
+      dodgeTrailAlpha: 0.2,
+      chargedTrailAlpha: 0.3,
+      maxTrailSamples: 48,
+      idleDampingRate: 18,
+      shakeOnHit: { intensity: 8, duration: 0.2 },
+      trailPositionThresholdSq: 0.01,
+      trailAngleThreshold: 0.01
+    };
+
+    const ENEMY_CFG = {
+      width: 33,
+      height: 30,
+      hitRadius: 18,
+      maxHealthQuarters: 4,
+      chargeTriggerDistance: 75,
+      windupDuration: 0.57,
+      chargeDuration: 0.256,
+      recoverDuration: 0.3,
+      postAttackCooldownDuration: 0.75,
+      stalkSpeed: 36,
+      chargeSpeed: 560,
+      stunDuration: 0.32,
+      chargeSpinAmount: TAU * 1.4,
+      chargeTrailInterval: 0.016,
+      chargeTrailLife: 0.34,
+      chargeTrailAlpha: 0.24,
+      maxTrailSamples: 36,
+      recoverDampingRate: 10,
+      knockbackDampingRate: 7,
+      combatReachPlayerFactor: 0.38,
+      hitFlashDuration: 0.09,
+      hitCooldownDuration: 0.16,
+      knockbackImpulse: 520,
+      defaultChargeDirection: { x: 0, y: 1 }
+    };
+
+    const FX_CFG = {
+      hitParticleCount: 12,
+      hitParticleSpread: Math.PI * 0.8,
+      hitParticleMinSpeed: 180,
+      hitParticleMaxSpeed: 420,
+      hitParticleMinLife: 0.15,
+      hitParticleMaxLife: 0.35,
+      hitParticleMinSize: 3,
+      hitParticleMaxSize: 7,
+      hitParticleColors: ["#ffffff", "#ffffaa", "#ffdd66"],
+      hitParticleDrag: 5,
+      hitRingRadius: 80,
+      hitRingLife: 0.25,
+      hitShake: { intensity: 6, duration: 0.15 },
+      hitstopDuration: 0.05,
+      hitTimeSlow: { duration: 0.3, minScale: 0.15 },
+      deathShake: { intensity: 14, duration: 0.3 },
+      deathHitstopDuration: 0.12,
+      deathTimeSlow: { duration: 0.55, minScale: 0.06 },
+      deathRingRadius: 120,
+      deathRingLife: 0.4,
+      deathParticleCount: 24,
+      deathParticleMinSpeed: 100,
+      deathParticleMaxSpeed: 350,
+      deathParticleMinLife: 0.3,
+      deathParticleMaxLife: 0.6,
+      deathParticleMinSize: 4,
+      deathParticleMaxSize: 10,
+      deathParticleColors: ["#d62222", "#ff4444", "#ff8800", "#ffaa22"],
+      deathParticleDrag: 3,
+      rainbowMinCount: 150,
+      rainbowExtraCount: 51
+    };
+
+    const UI_CFG = {
+      healthBarWidth: 160,
+      healthBarHeight: 10,
+      healthBarBottomMargin: 24
+    };
 
     function clamp(value, min, max) {
       return Math.max(min, Math.min(max, value));
@@ -71,7 +171,7 @@
 
       static normalize(v) {
         const len = Vec2.length(v);
-        if (len <= 1e-7) {
+        if (len <= EPSILON) {
           return { x: 0, y: 0 };
         }
         return { x: v.x / len, y: v.y / len };
@@ -105,14 +205,14 @@
         this.down = false;
         this.start = { x: 0, y: 0 };
         this.current = { x: 0, y: 0 };
-        this.downTime = 0;
+        this.holdGameDuration = 0;
         this.pendingSwipe = null;
 
-        this.minSwipeDistance = 14;
-        this.chargeStartDelay = 0.1;
-        this.chargeFillDuration = 0.2;
+        this.minSwipeDistance = INPUT_CFG.minSwipeDistance;
+        this.chargeStartDelay = INPUT_CFG.chargeStartDelay;
+        this.chargeFillDuration = INPUT_CFG.chargeFillDuration;
         this.fullChargeThreshold = this.chargeStartDelay + this.chargeFillDuration;
-        this.chargeGraceThreshold = 0.75;  // swipe at 75%+ counts as charged attack
+        this.chargeGraceThreshold = INPUT_CFG.chargeGraceThreshold;
       }
 
       bind(canvas) {
@@ -140,7 +240,7 @@
         this.activePointerId = event.pointerId;
         this.start = world;
         this.current = world;
-        this.downTime = performance.now() * 0.001;
+        this.holdGameDuration = 0;
         this.pendingSwipe = null;
       }
 
@@ -162,8 +262,7 @@
 
         const world = this.getWorldPointer(event);
         const releasePos = world || this.current;
-        const now = performance.now() * 0.001;
-        const holdDuration = now - this.downTime;
+        const holdDuration = this.holdGameDuration;
         const swipeVec = Vec2.sub(releasePos, this.start);
         const swipeDistance = Vec2.length(swipeVec);
 
@@ -182,6 +281,13 @@
         this.activePointerId = null;
       }
 
+      advanceHold(dt) {
+        if (!this.down) {
+          return;
+        }
+        this.holdGameDuration += dt;
+      }
+
       consumeSwipe() {
         const swipe = this.pendingSwipe;
         this.pendingSwipe = null;
@@ -192,7 +298,7 @@
         if (!this.down) {
           return 0;
         }
-        return nowSeconds - this.downTime;
+        return this.holdGameDuration;
       }
 
       getChargeProgress(nowSeconds) {
@@ -211,8 +317,8 @@
         this.vx = 0;
         this.vy = 0;
 
-        this.width = 10.08;  // 14 * 0.6 * 1.2 (40% smaller, then 20% bigger)
-        this.height = 43.2;  // 60 * 0.6 * 1.2
+        this.width = PLAYER_CFG.width;
+        this.height = PLAYER_CFG.height;
         this.baseAngle = 0;
         this.spinAngle = 0;
 
@@ -221,6 +327,12 @@
         this.trail = [];
         this.trailSpawnTimer = 0;
         this.stains = [];
+
+        this.maxHealth = PLAYER_CFG.maxHealth;
+        this.health = this.maxHealth;
+        this.iframeDuration = PLAYER_CFG.iframeDuration;
+        this.iframeTimer = 0;
+        this.hitFlashTimer = 0;
       }
 
       startMove(type, direction) {
@@ -228,9 +340,9 @@
         const horizontalSign = dir.x >= 0 ? 1 : -1;
 
         const isDodge = type === "dodge";
-        const duration = isDodge ? 0.12 : 0.2;
-        const travel = isDodge ? 78 : 150;
-        const spins = isDodge ? Math.PI * 0.8 * horizontalSign : TAU * 2 * horizontalSign;
+        const duration = isDodge ? PLAYER_CFG.dodgeDuration : PLAYER_CFG.chargedDuration;
+        const travel = isDodge ? PLAYER_CFG.dodgeTravel : PLAYER_CFG.chargedTravel;
+        const spins = isDodge ? PLAYER_CFG.dodgeSpin * horizontalSign : PLAYER_CFG.chargedSpin * horizontalSign;
         this.actionSerial += 1;
 
         this.action = {
@@ -246,13 +358,38 @@
         };
       }
 
+      takeDamage(game) {
+        if (this.iframeTimer > 0 || this.health <= 0) return;
+        this.health = Math.max(0, this.health - 1);
+        this.iframeTimer = this.iframeDuration;
+        this.hitFlashTimer = PLAYER_CFG.hitFlashDuration;
+        game.triggerShake(PLAYER_CFG.shakeOnHit.intensity, PLAYER_CFG.shakeOnHit.duration);
+      }
+
       update(dt, input, nowSeconds) {
+        this.updateStatusTimers(dt);
+        this.consumeQueuedSwipe(input);
+        this.updateAction(dt);
+        this.applyPostActionDamping(dt);
+        this.applyMovement(dt);
+        this.clampToPlayfield();
+        this.ageTrail(dt);
+      }
+
+      updateStatusTimers(dt) {
+        this.iframeTimer = Math.max(0, this.iframeTimer - dt);
+        this.hitFlashTimer = Math.max(0, this.hitFlashTimer - dt);
+      }
+
+      consumeQueuedSwipe(input) {
         const swipe = input.consumeSwipe();
         if (swipe) {
           const type = swipe.fullyCharged ? "charged" : "dodge";
           this.startMove(type, swipe.direction);
         }
+      }
 
+      updateAction(dt) {
         if (this.action) {
           const frameStartX = this.x;
           const frameStartY = this.y;
@@ -267,7 +404,7 @@
             const moveY = this.action.direction.y * deltaTravel;
             this.x += moveX;
             this.y += moveY;
-            if (dt > 1e-7) {
+            if (dt > EPSILON) {
               this.vx = moveX / dt;
               this.vy = moveY / dt;
             } else {
@@ -281,11 +418,13 @@
           }
           this.spinAngle = this.action.startAngle + this.action.spins * easeOutCubic(t);
 
-          const trailInterval = this.action.type === "charged" ? 0.0064 : 0.016;
+          const trailInterval = this.action.type === "charged"
+            ? PLAYER_CFG.chargedTrailInterval
+            : PLAYER_CFG.dodgeTrailInterval;
           this.trailSpawnTimer += dt;
           while (this.trailSpawnTimer >= trailInterval) {
             const sampleTimeInFrame = dt - (this.trailSpawnTimer - trailInterval);
-            const sampleT = dt > 1e-7 ? clamp(sampleTimeInFrame / dt, 0, 1) : 1;
+            const sampleT = dt > EPSILON ? clamp(sampleTimeInFrame / dt, 0, 1) : 1;
             const sampleX = frameStartX + (this.x - frameStartX) * sampleT;
             const sampleY = frameStartY + (this.y - frameStartY) * sampleT;
             const sampleAngle = frameStartAngle + (this.spinAngle - frameStartAngle) * sampleT;
@@ -295,7 +434,7 @@
               const dx = prev.x - sampleX;
               const dy = prev.y - sampleY;
               const da = Math.abs(prev.angle - sampleAngle);
-              if (dx * dx + dy * dy < 0.01 && da < 0.01) {
+              if (dx * dx + dy * dy < PLAYER_CFG.trailPositionThresholdSq && da < PLAYER_CFG.trailAngleThreshold) {
                 continue;
               }
             }
@@ -304,10 +443,10 @@
               y: sampleY,
               angle: sampleAngle,
               age: 0,
-              life: this.action.type === "dodge" ? 0.32 : 0.44,
-              alpha: this.action.type === "dodge" ? 0.2 : 0.3
+              life: this.action.type === "dodge" ? PLAYER_CFG.dodgeTrailLife : PLAYER_CFG.chargedTrailLife,
+              alpha: this.action.type === "dodge" ? PLAYER_CFG.dodgeTrailAlpha : PLAYER_CFG.chargedTrailAlpha
             });
-            if (this.trail.length > 48) {
+            if (this.trail.length > PLAYER_CFG.maxTrailSamples) {
               this.trail.shift();
             }
           }
@@ -318,22 +457,33 @@
             this.vy = 0;
             this.spinAngle = 0;
           }
-        } else {
-          this.vx *= Math.max(0, 1 - dt * 18);
-          this.vy *= Math.max(0, 1 - dt * 18);
-          this.spinAngle = 0;
         }
+      }
 
+      applyPostActionDamping(dt) {
+        if (this.action) {
+          return;
+        }
+        this.vx *= Math.max(0, 1 - dt * PLAYER_CFG.idleDampingRate);
+        this.vy *= Math.max(0, 1 - dt * PLAYER_CFG.idleDampingRate);
+        this.spinAngle = 0;
+      }
+
+      applyMovement(dt) {
         if (!this.action || this.action.type !== "charged") {
           this.x += this.vx * dt;
           this.y += this.vy * dt;
         }
+      }
 
+      clampToPlayfield() {
         const halfW = this.width * 0.5;
         const halfH = this.height * 0.5;
         this.x = clamp(this.x, halfW, GAME_WIDTH - halfW);
         this.y = clamp(this.y, halfH, GAME_HEIGHT - halfH);
+      }
 
+      ageTrail(dt) {
         for (let i = this.trail.length - 1; i >= 0; i -= 1) {
           const sample = this.trail[i];
           sample.age += dt;
@@ -341,7 +491,6 @@
             this.trail.splice(i, 1);
           }
         }
-
       }
 
       draw(ctx, chargeProgress, chargeVisible) {
@@ -382,6 +531,10 @@
         ctx.ellipse(this.x, shadowY + 0.2, this.width * 0.78, 3.3, 0, 0, TAU);
         ctx.fill();
         ctx.restore();
+
+        if (this.hitFlashTimer > 0 && Math.sin(performance.now() * 0.03) > 0) {
+          return;
+        }
 
         ctx.save();
         ctx.translate(this.x, this.y);
@@ -441,6 +594,7 @@
         this.renderX = x;
         this.renderY = y;
         this.renderRollAngle = 0;
+        this.entering = false;
         this.vx = 0;
         this.vy = 0;
         this.knockbackVX = 0;
@@ -585,7 +739,14 @@
 
         const halfW = this.width * 0.5;
         const halfH = this.height * 0.5;
-        this.x = clamp(this.x, halfW, GAME_WIDTH - halfW);
+        if (this.entering) {
+          if (this.x >= halfW && this.x <= GAME_WIDTH - halfW) {
+            this.entering = false;
+          }
+        }
+        if (!this.entering) {
+          this.x = clamp(this.x, halfW, GAME_WIDTH - halfW);
+        }
         this.y = clamp(this.y, halfH, GAME_HEIGHT - halfH);
       }
 
@@ -682,6 +843,14 @@
 
           game.rainbowParticles.emit(this.x, this.y, 150 + Math.floor(Math.random() * 51));
         }
+      }
+
+      checkDamageToPlayer(player, game) {
+        if (!this.alive || this.state !== "charge") return;
+        if (player.iframeTimer > 0 || player.health <= 0) return;
+        if (player.action && player.action.type === "dodge") return;
+        if (!this.isOverlappingPlayer(player)) return;
+        player.takeDamage(game);
       }
 
       interpolate(alpha) {
@@ -1037,17 +1206,18 @@
           case "chainSpawns":
             this.tutorialTimeScale = 1;
             this.textAlpha = 0;
-            if (this.chainSpawnRemaining <= 0) {
-              this.active = false;
-              this.phase = "done";
-              break;
-            }
-            if (!enemy.alive) {
+            if (this.chainSpawnRemaining > 0) {
               this.chainSpawnTimer = Math.max(0, this.chainSpawnTimer - realDt);
               if (this.chainSpawnTimer <= 0) {
                 this.spawnEnemyFromRandomHorizontalSide();
                 this.chainSpawnRemaining -= 1;
                 this.chainSpawnTimer = this.chainSpawnDelay;
+              }
+            } else {
+              const allDead = this.game.enemies.every(e => !e.alive);
+              if (allDead) {
+                this.active = false;
+                this.phase = "done";
               }
             }
             break;
@@ -1076,6 +1246,7 @@
         enemy.knockbackVX = 0;
         enemy.knockbackVY = 0;
         enemy.alive = true;
+        enemy.entering = true;
         enemy.healthQuarters = 3;
         enemy.state = "stalk";
         enemy.windupTimer = 0;
@@ -1383,6 +1554,7 @@
         }
         for (let i = 0; i < this.enemies.length; i++) {
           this.enemies[i].onPlayerContact(this.player, this);
+          this.enemies[i].checkDamageToPlayer(this.player, this);
         }
       }
 
@@ -1460,6 +1632,26 @@
           this.tutorial.draw(ctx);
         }
 
+        const hbWidth = 160;
+        const hbHeight = 10;
+        const hbX = (GAME_WIDTH - hbWidth) * 0.5;
+        const hbY = GAME_HEIGHT - 24;
+        const hpFrac = this.player.health / this.player.maxHealth;
+        ctx.save();
+        ctx.globalAlpha = 0.35;
+        ctx.fillStyle = "#000000";
+        ctx.fillRect(hbX - 1, hbY - 1, hbWidth + 2, hbHeight + 2);
+        ctx.restore();
+        ctx.save();
+        ctx.globalAlpha = 0.25;
+        ctx.fillStyle = "#440000";
+        ctx.fillRect(hbX, hbY, hbWidth, hbHeight);
+        ctx.restore();
+        if (hpFrac > 0) {
+          ctx.fillStyle = "#cc2222";
+          ctx.fillRect(hbX, hbY, hbWidth * hpFrac, hbHeight);
+        }
+
         ctx.restore();
       }
 
@@ -1483,6 +1675,9 @@
         } else {
           this.timeScale = 1;
         }
+
+        const holdDt = this.hitstopTimer > 0 ? 0 : frameDt * this.timeScale;
+        this.input.advanceHold(holdDt);
 
         const tutScale = this.tutorial ? this.tutorial.getTimeScale() : 1;
         this.accumulator += frameDt * this.timeScale * tutScale;
