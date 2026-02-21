@@ -128,7 +128,7 @@
       width: 33,
       height: 30,
       hitRadius: 18,
-      maxHealthQuarters: 4,
+      maxHealth: 4,
       chargeTriggerDistance: 75,
       windupDuration: 0.57,
       chargeDuration: 0.256,
@@ -253,7 +253,8 @@
       bat: createEmojiCanvas("🦇", ENEMY_CFG.height),
       snake: createEmojiCanvas("🐍", ENEMY_CFG.height),
       spider: createEmojiCanvas("🕷️", ENEMY_CFG.height),
-      boar: createEmojiCanvas("🐗", ENEMY_CFG.height * 1.5)
+      boar: createEmojiCanvas("🐗", ENEMY_CFG.height * 1.5),
+      player: createEmojiCanvas("⚔️", PLAYER_CFG.height * 0.5)
     };
 
     class MathUtils {
@@ -481,13 +482,13 @@
 
         this.action = null;
         this.actionSerial = 0;
-        this.stains = [];
 
         this.chargeProgress = 0;
         this.chargeVisible = false;
 
         this.maxHealth = PLAYER_CFG.maxHealth;
         this.health = this.maxHealth;
+        this.displayHealth = this.maxHealth;
         this.iframeDuration = PLAYER_CFG.iframeDuration;
         this.iframeTimer = 0;
         this.hitFlashTimer = 0;
@@ -540,6 +541,9 @@
       updateStatusTimers(dt) {
         this.iframeTimer = Math.max(0, this.iframeTimer - dt);
         this.hitFlashTimer = Math.max(0, this.hitFlashTimer - dt);
+        if (this.displayHealth > this.health) {
+          this.displayHealth = Math.max(this.health, this.displayHealth - dt * 2.5);
+        }
       }
 
       resetPosition() {
@@ -550,6 +554,8 @@
         this.action = null;
         this.trail = [];
         this.spinAngle = 0;
+        this.health = this.maxHealth;
+        this.displayHealth = this.maxHealth;
       }
 
       consumeQueuedSwipe(input) {
@@ -649,14 +655,15 @@
 
       draw(ctx) {
         ctx.save();
-        ctx.fillStyle = "#ffffff";
+        const now = performance.now();
         for (let i = 0; i < this.trail.length; i += 1) {
           const t = this.trail[i];
           const alpha = (1 - t.age / t.life) * t.alpha;
+          const floatOffset = Math.sin((now - t.age * 1000) * 0.003) * 2;
           ctx.globalAlpha = alpha;
           ctx.translate(t.x, t.y);
           ctx.rotate(t.angle);
-          ctx.fillRect(-this.width * 0.5, -this.height * 0.5, this.width, this.height);
+          ctx.drawImage(EMOJI_CANVASES.player, -EMOJI_CANVASES.player.width / 2, -EMOJI_CANVASES.player.height / 2 + 4 + floatOffset);
           ctx.rotate(-t.angle);
           ctx.translate(-t.x, -t.y);
         }
@@ -676,51 +683,27 @@
           ctx.restore();
         }
 
-        const shadowY = this.y + this.height * 0.5 + 1.5;
+        const shadowY = this.y + this.height * 0.5 - 0.5;
         ctx.save();
         ctx.fillStyle = "rgba(0, 0, 0, 0.14)";
         ctx.beginPath();
-        ctx.ellipse(this.x, shadowY, this.width * 0.56, 2.2, 0, 0, TAU);
+        ctx.ellipse(this.x, shadowY, this.width * 1.2, 3.5, 0, 0, TAU);
         ctx.fill();
         ctx.fillStyle = "rgba(0, 0, 0, 0.07)";
         ctx.beginPath();
-        ctx.ellipse(this.x, shadowY + 0.2, this.width * 0.78, 3.3, 0, 0, TAU);
+        ctx.ellipse(this.x, shadowY + 0.2, this.width * 1.6, 5.0, 0, 0, TAU);
         ctx.fill();
         ctx.restore();
 
-        if (this.hitFlashTimer > 0 && Math.sin(performance.now() * 0.03) > 0) {
+        if (this.hitFlashTimer > 0 && Math.sin(now * 0.03) > 0) {
           return;
         }
 
+        const floatOffset = Math.sin(now * 0.003) * 2;
         ctx.save();
         ctx.translate(this.x, this.y);
         ctx.rotate(this.spinAngle);
-        ctx.globalAlpha = 0.3;
-        ctx.strokeStyle = "#000000";
-        ctx.lineWidth = 1;
-        ctx.strokeRect(-this.width * 0.5 - 1.5, -this.height * 0.5 - 1.5, this.width + 3, this.height + 3);
-        ctx.restore();
-
-        ctx.save();
-        ctx.translate(this.x, this.y);
-        ctx.rotate(this.spinAngle);
-        ctx.fillStyle = "#ffffff";
-        ctx.fillRect(-this.width * 0.5, -this.height * 0.5, this.width, this.height);
-        if (this.stains.length > 0) {
-          ctx.save();
-          ctx.beginPath();
-          ctx.rect(-this.width * 0.5, -this.height * 0.5, this.width, this.height);
-          ctx.clip();
-          for (let i = 0; i < this.stains.length; i++) {
-            const s = this.stains[i];
-            ctx.globalAlpha = s.alpha;
-            ctx.fillStyle = `rgb(${s.r},${s.g},${s.b})`;
-            ctx.beginPath();
-            ctx.arc(s.localX, s.localY, s.radius, 0, TAU);
-            ctx.fill();
-          }
-          ctx.restore();
-        }
+        ctx.drawImage(EMOJI_CANVASES.player, -EMOJI_CANVASES.player.width / 2, -EMOJI_CANVASES.player.height / 2 + 4 + floatOffset);
         ctx.restore();
 
         if (this.chargeVisible && !this.action) {
@@ -756,8 +739,9 @@
 
         this.hitRadius = ENEMY_CFG.hitRadius;
 
-        this.maxHealthQuarters = ENEMY_CFG.maxHealthQuarters;
-        this.healthQuarters = this.maxHealthQuarters;
+        this.maxHealth = ENEMY_CFG.maxHealth;
+        this.health = this.maxHealth;
+        this.displayHealth = this.maxHealth;
         this.alive = true;
 
         this.state = "stalk";
@@ -821,6 +805,9 @@
         this.hitFlashTimer = Math.max(0, this.hitFlashTimer - dt);
         this.stunTimer = Math.max(0, this.stunTimer - dt);
         this.postAttackCooldownTimer = Math.max(0, this.postAttackCooldownTimer - dt);
+        if (this.displayHealth > this.health) {
+          this.displayHealth = Math.max(this.health, this.displayHealth - dt * 2.5);
+        }
       }
 
       updateState(dt, playerDistance, toPlayerDir, game) {
@@ -832,12 +819,8 @@
         }
 
         if (this.entering) {
-          const centerX = GAME_WIDTH * 0.5;
-          const centerY = GAME_HEIGHT * 0.5;
-          const toCenter = Vec2.sub({ x: centerX, y: centerY }, { x: this.x, y: this.y });
-          const toCenterDir = Vec2.normalize(toCenter);
-          this.vx = toCenterDir.x * this.stalkSpeed;
-          this.vy = toCenterDir.y * this.stalkSpeed;
+          this.vx = (this.x < GAME_WIDTH * 0.5 ? 1 : -1) * this.stalkSpeed;
+          this.vy = 0;
           this.rollAngle = 0;
           return;
         }
@@ -983,14 +966,25 @@
         const halfW = this.width * 0.5;
         const halfH = this.height * 0.5;
         if (this.entering) {
-          if (this.x >= halfW && this.x <= GAME_WIDTH - halfW && this.y >= halfH && this.y <= GAME_HEIGHT - halfH) {
+          if (this.x >= halfW && this.x <= GAME_WIDTH - halfW) {
             this.entering = false;
           }
         }
-        if (!this.entering) {
+        
+        // When entering, restrict horizontal movement so they don't get knocked further out
+        if (this.entering) {
+          if (this.x < GAME_WIDTH * 0.5) {
+            this.x = Math.max(this.x, this.prevX);
+            this.knockbackVX = Math.max(0, this.knockbackVX);
+          } else {
+            this.x = Math.min(this.x, this.prevX);
+            this.knockbackVX = Math.min(0, this.knockbackVX);
+          }
+        } else {
           this.x = clamp(this.x, halfW, GAME_WIDTH - halfW);
-          this.y = clamp(this.y, halfH, GAME_HEIGHT - halfH);
         }
+        // Always clamp vertically
+        this.y = clamp(this.y, halfH, GAME_HEIGHT - halfH);
       }
 
       isOverlappingPlayer(player) {
@@ -1009,7 +1003,7 @@
         const hitY = (this.y + player.y) * 0.5;
         this.spawnChargedHitEffects(game, hitX, hitY, awayFromHit);
 
-        if (this.healthQuarters <= 0) {
+        if (this.health <= 0) {
           this.handleDeath(game);
         }
       }
@@ -1040,7 +1034,7 @@
       }
 
       applyChargedHit(player, awayFromHit) {
-        this.healthQuarters = Math.max(0, this.healthQuarters - 1);
+        this.health = Math.max(0, this.health - 1);
         this.lastHitByActionId = player.action.id;
         this.hitFlashTimer = ENEMY_CFG.hitFlashDuration;
         this.hitCooldown = ENEMY_CFG.hitCooldownDuration;
@@ -1173,12 +1167,35 @@
         ctx.rotate(waddle + rAngle);
         ctx.drawImage(this.emojiCanvas, -this.emojiCanvas.width / 2, -this.emojiCanvas.height / 2);
         ctx.restore();
+
+        if (this.health < this.maxHealth && this.health > 0) {
+          const hpFrac = this.health / this.maxHealth;
+          const displayHpFrac = this.displayHealth / this.maxHealth;
+          const barW = this.width * 1.2;
+          const barH = 3;
+          const barX = rx - barW * 0.5;
+          const barY = ry - this.height * 0.5 - 15;
+          
+          ctx.save();
+          ctx.fillStyle = "rgba(0, 0, 0, 0.6)";
+          ctx.fillRect(barX - 1, barY - 1, barW + 2, barH + 2);
+          
+          ctx.fillStyle = "#ffffff";
+          ctx.fillRect(barX, barY, barW * displayHpFrac, barH);
+          
+          ctx.fillStyle = "#ff2222";
+          ctx.fillRect(barX, barY, barW * hpFrac, barH);
+          ctx.restore();
+        }
       }
     }
 
     class RatEnemy extends BaseEnemy {
       constructor(x, y) {
         super(x, y, "rat");
+        this.maxHealth = 4;
+        this.health = this.maxHealth;
+        this.displayHealth = this.maxHealth;
       }
     }
 
@@ -1192,7 +1209,9 @@
         this.recoverDuration = ENEMY_CFG.recoverDuration * 0.5;
         this.postAttackCooldownDuration = ENEMY_CFG.postAttackCooldownDuration * 0.5;
         this.chargeSpeed = ENEMY_CFG.chargeSpeed * 1.2;
-        this.healthQuarters = 2;
+        this.maxHealth = 2;
+        this.health = this.maxHealth;
+        this.displayHealth = this.maxHealth;
         this.sineTimer = Math.random() * TAU;
         this.sineFreq = 3 + Math.random() * 3;
       }
@@ -1221,6 +1240,9 @@
     class SnakeEnemy extends BaseEnemy {
       constructor(x, y) {
         super(x, y, "snake");
+        this.maxHealth = 4;
+        this.health = this.maxHealth;
+        this.displayHealth = this.maxHealth;
         this.stalkSpeed = ENEMY_CFG.stalkSpeed * 0.8;
         this.chargeTriggerDistance = 150;
         this.maintainDistance = 100;
@@ -1265,7 +1287,9 @@
     class SpiderEnemy extends BaseEnemy {
       constructor(x, y) {
         super(x, y, "spider");
-        this.healthQuarters = 2;
+        this.maxHealth = 2;
+        this.health = this.maxHealth;
+        this.displayHealth = this.maxHealth;
         this.isBursting = Math.random() < 0.5;
         this.burstTimer = Math.random() * 0.3;
         this.burstOnDuration = 0.2 + Math.random() * 0.2;
@@ -1313,8 +1337,9 @@
         this.width = ENEMY_CFG.width * 1.5;
         this.height = ENEMY_CFG.height * 1.5;
         this.hitRadius = ENEMY_CFG.hitRadius * 1.5;
-        this.maxHealthQuarters = 8;
-        this.healthQuarters = this.maxHealthQuarters;
+        this.maxHealth = 6;
+        this.health = this.maxHealth;
+        this.displayHealth = this.maxHealth;
         this.stalkSpeed = ENEMY_CFG.stalkSpeed * 0.6;
         this.chargeTriggerDistance = 180;
         this.windupDuration = 1;
@@ -1413,9 +1438,10 @@
           { 
             svg: SAND_SVG, 
             waves: [
-              { delay: 2, enemies: ["snake", "rat"] },
-              { delay: 6, enemies: ["snake", "bat", "bat"] },
-              { delay: 7, enemies: ["snake", "snake", "rat", "bat"] }
+              { delay: 2, enemies: ["snake", "rat", "bat"] },
+              { delay: 7, enemies: ["snake", "snake", "snake", "rat", "rat"] },
+              { delay: 14, enemies: ["snake", "rat", "rat", "rat", "rat", "bat"] },
+              { delay: 16, enemies: ["snake", "snake", "rat", "rat", "bat", "bat", "bat"] }
             ] 
           },
           { 
@@ -1423,7 +1449,8 @@
             waves: [
               { delay: 2, enemies: ["spider", "bat"] },
               { delay: 6, enemies: ["spider", "spider", "snake"] },
-              { delay: 7, enemies: ["spider", "spider", "spider", "rat", "rat"] }
+              { delay: 7, enemies: ["spider", "spider", "spider", "rat", "rat"] },
+              { delay: 8, enemies: ["spider", "spider", "spider", "snake", "bat", "bat"] }
             ] 
           },
           { 
@@ -1432,7 +1459,9 @@
               { delay: 2, enemies: ["boar", "bat"] },
               { delay: 8, enemies: ["boar", "spider", "snake"] },
               { delay: 8, enemies: ["boar", "boar", "bat", "bat"] },
-              { delay: 10, enemies: ["boar", "boar", "spider", "snake", "snake"] }
+              { delay: 10, enemies: ["boar", "boar", "spider", "snake", "snake"] },
+              { delay: 10, enemies: ["boar", "boar", "boar", "spider", "spider"] },
+              { delay: 12, enemies: ["boar", "boar", "boar", "boar", "snake", "bat", "bat"] }
             ] 
           }
         ];
@@ -1490,9 +1519,8 @@
             this.game.input.down = false;
             this.game.input.pendingSwipe = null;
             
-            // Clear stains and particles
+            // Clear particles
             this.game.groundSplotches = [];
-            this.game.player.stains = [];
             this.game.particles.particles = [];
             this.game.rainbowParticles.particles = [];
             this.game.flashRings = [];
@@ -1653,35 +1681,12 @@
           else if (p.y > GAME_HEIGHT) { p.y = 2 * GAME_HEIGHT - p.y; p.vy = -Math.abs(p.vy) * p.bounciness; }
 
           if (p.z <= 0 && p.vz < 0) {
-            const halfW = player.width * 0.5;
-            const halfH = player.height * 0.5;
-            const playerMinX = player.x - halfW;
-            const playerMaxX = player.x + halfW;
-            const playerMinY = player.y - halfH;
-            const playerMaxY = player.y + halfH;
-            const stainRadius = p.size * (1.0 + Math.random());
-
-            const directHit = MathUtils.isPointInRect(p.x, p.y, playerMinX, playerMinY, playerMaxX, playerMaxY);
-            const splashHit = MathUtils.isCircleOverlappingRect(p.x, p.y, stainRadius, playerMinX, playerMinY, playerMaxX, playerMaxY);
-
-            if (directHit || splashHit) {
-              player.stains.push({
-                localX: p.x - player.x,
-                localY: p.y - player.y,
-                r: p.r, g: p.g, b: p.b,
-                radius: stainRadius,
-                alpha: 0.0875 + Math.random() * 0.0375
-              });
-            }
-
-            if (!directHit) {
-              groundSplotches.push({
-                x: p.x, y: p.y,
-                r: p.r, g: p.g, b: p.b,
-                radius: p.size * (1.5 + Math.random() * 1.5),
-                alpha: 0.0875 + Math.random() * 0.0375
-              });
-            }
+            groundSplotches.push({
+              x: p.x, y: p.y,
+              r: p.r, g: p.g, b: p.b,
+              radius: p.size * (1.5 + Math.random() * 1.5),
+              alpha: 0.0875 + Math.random() * 0.0375
+            });
             this.pool.release(p);
             MathUtils.swapAndPop(this.particles, i);
           }
@@ -1909,7 +1914,6 @@
           this.game.input.pendingSwipe = null;
           
           this.game.groundSplotches = [];
-          this.game.player.stains = [];
           this.game.particles.particles = [];
           this.game.rainbowParticles.particles = [];
           this.game.flashRings = [];
@@ -1932,7 +1936,10 @@
         const enemy = new RatEnemy(0, 0);
         const fromLeft = Math.random() < 0.5;
         const spawnX = fromLeft ? -template.width : GAME_WIDTH + template.width;
-        const spawnY = GAME_HEIGHT * (0.22 + Math.random() * 0.56);
+        
+        // Ensure tutorial enemies also spawn within vertical bounds
+        const halfH = ENEMY_CFG.height * 0.5;
+        const spawnY = clamp(GAME_HEIGHT * (0.22 + Math.random() * 0.56), halfH, GAME_HEIGHT - halfH);
 
         enemy.x = spawnX;
         enemy.y = spawnY;
@@ -1946,7 +1953,7 @@
         enemy.knockbackVY = 0;
         enemy.alive = true;
         enemy.entering = true;
-        enemy.healthQuarters = 3;
+        enemy.health = enemy.maxHealth;
         enemy.state = "stalk";
         enemy.windupTimer = 0;
         enemy.chargeTimer = 0;
@@ -2135,7 +2142,8 @@
         this.enemy.chargeTimer = this.enemy.chargeDuration;
         this.enemy.chargeElapsed = 0;
         this.enemy.chargeSpinAmount = ENEMY_CFG.chargeSpinAmount;
-        this.enemy.healthQuarters = 1;
+        this.enemy.health = 1;
+        this.enemy.displayHealth = 1;
 
         this.lastTimestamp = 0;
         this.accumulator = 0;
@@ -2177,7 +2185,10 @@
         let enemy;
         const fromLeft = Math.random() < 0.5;
         const spawnX = fromLeft ? -50 : GAME_WIDTH + 50;
-        const spawnY = GAME_HEIGHT * (0.1 + Math.random() * 0.8);
+        
+        // Spawn them on screen vertically
+        const halfH = ENEMY_CFG.height * 0.5;
+        const spawnY = clamp(GAME_HEIGHT * (0.1 + Math.random() * 0.8), halfH, GAME_HEIGHT - halfH);
         
         if (type === "rat") enemy = new RatEnemy(spawnX, spawnY);
         else if (type === "bat") enemy = new BatEnemy(spawnX, spawnY);
@@ -2431,16 +2442,25 @@
         const hbX = (GAME_WIDTH - hbWidth) * 0.5;
         const hbY = GAME_HEIGHT - UI_CFG.healthBarBottomMargin;
         const hpFrac = this.player.health / this.player.maxHealth;
+        const displayHpFrac = this.player.displayHealth / this.player.maxHealth;
         ctx.save();
         ctx.globalAlpha = 0.35;
         ctx.fillStyle = "#000000";
         ctx.fillRect(hbX - 1, hbY - 1, hbWidth + 2, hbHeight + 2);
         ctx.restore();
+        
+        ctx.save();
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(hbX, hbY, hbWidth * displayHpFrac, hbHeight);
+        ctx.restore();
+
         ctx.save();
         ctx.globalAlpha = 0.25;
         ctx.fillStyle = "#440000";
         ctx.fillRect(hbX, hbY, hbWidth, hbHeight);
         ctx.restore();
+        
         if (hpFrac > 0) {
           ctx.fillStyle = "#cc2222";
           ctx.fillRect(hbX, hbY, hbWidth * hpFrac, hbHeight);
