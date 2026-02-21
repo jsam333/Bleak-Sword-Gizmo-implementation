@@ -45,33 +45,31 @@
     const TAU = Math.PI * 2;
     const EPSILON = 1e-7;
 
-    const GRASS_SVG = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">
+        const LEVEL_BACKGROUNDS = {
+      GRASS: `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">
       <rect width="100" height="100" fill="%237cb342"/>
       <path d="M10,20 Q15,5 20,20 Q25,5 30,20" stroke="%23689f38" stroke-width="2" fill="none"/>
       <path d="M40,50 Q45,35 50,50 Q55,35 60,50" stroke="%23558b2f" stroke-width="2" fill="none"/>
       <path d="M70,80 Q75,65 80,80 Q85,65 90,80" stroke="%23689f38" stroke-width="2" fill="none"/>
       <path d="M20,70 Q25,55 30,70 Q35,55 40,70" stroke="%238bc34a" stroke-width="2" fill="none"/>
       <path d="M80,30 Q85,15 90,30 Q95,15 100,30" stroke="%23558b2f" stroke-width="2" fill="none"/>
-    </svg>`;
-
-    const DIRT_SVG = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">
+    </svg>`,
+      DIRT: `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">
       <rect width="100" height="100" fill="%238d6e63"/>
       <path d="M15,25 Q30,15 45,25 T75,25" stroke="%23795548" stroke-width="3" fill="none"/>
       <path d="M25,65 Q40,55 55,65 T85,65" stroke="%236d4c41" stroke-width="2" fill="none"/>
       <circle cx="20" cy="80" r="3" fill="%235d4037"/>
       <circle cx="80" cy="30" r="4" fill="%23795548"/>
       <circle cx="50" cy="90" r="2" fill="%235d4037"/>
-    </svg>`;
-
-    const SAND_SVG = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">
+    </svg>`,
+      SAND: `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">
       <rect width="100" height="100" fill="%23ffe082"/>
       <path d="M0,30 Q25,10 50,30 T100,30" stroke="%23ffd54f" stroke-width="4" fill="none"/>
       <path d="M0,70 Q25,50 50,70 T100,70" stroke="%23ffca28" stroke-width="3" fill="none"/>
       <circle cx="15" cy="45" r="1.5" fill="%23ffc107"/>
       <circle cx="75" cy="85" r="2" fill="%23ffca28"/>
-    </svg>`;
-
-    const STONE_SVG = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">
+    </svg>`,
+      STONE: `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">
       <rect width="100" height="100" fill="%23757575"/>
       <rect x="0" y="0" width="48" height="30" fill="%239e9e9e" stroke="%23616161" stroke-width="2"/>
       <rect x="50" y="0" width="50" height="30" fill="%23bdbdbd" stroke="%23616161" stroke-width="2"/>
@@ -80,9 +78,8 @@
       <rect x="79" y="32" width="21" height="35" fill="%23e0e0e0" stroke="%23616161" stroke-width="2"/>
       <rect x="0" y="69" width="40" height="31" fill="%239e9e9e" stroke="%23616161" stroke-width="2"/>
       <rect x="42" y="69" width="58" height="31" fill="%23bdbdbd" stroke="%23616161" stroke-width="2"/>
-    </svg>`;
-
-    const LAVA_SVG = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">
+    </svg>`,
+      LAVA: `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">
       <rect width="100" height="100" fill="%23212121"/>
       <path d="M0,20 L20,30 L40,15 L60,40 L80,25 L100,45" stroke="%23e65100" stroke-width="4" fill="none"/>
       <path d="M0,60 L25,50 L45,70 L70,55 L100,75" stroke="%23ef6c00" stroke-width="3" fill="none"/>
@@ -90,7 +87,31 @@
       <circle cx="20" cy="25" r="3" fill="%23ff9800"/>
       <circle cx="80" cy="30" r="2" fill="%23ffb300"/>
       <circle cx="50" cy="65" r="4" fill="%23ff9800"/>
-    </svg>`;
+    </svg>`
+    };
+
+    const ENEMY_STATES = {
+      STALK: "stalk",
+      WINDUP: "windup",
+      CHARGE: "charge",
+      RECOVER: "recover"
+    };
+
+    const TUTORIAL_PHASES = {
+      INTRO: "intro",
+      WAIT_DODGE: "waitDodge",
+      DODGING: "dodging",
+      POST_DODGE_WAIT: "postDodgeWait",
+      WAIT_HOLD: "waitHold",
+      WAIT_ATTACK: "waitAttack",
+      ATTACKING: "attacking",
+      FREE_FIGHT_FIRST_RAT: "freeFightFirstRat",
+      CHAIN_SPAWNS: "chainSpawns",
+      COMPLETE_DELAY: "completeDelay",
+      WAITING_FOR_INPUT: "waitingForInput",
+      DONE: "done"
+    };
+
 
     const INPUT_CFG = {
       minSwipeDistance: 14,
@@ -148,7 +169,9 @@
       hitFlashDuration: 0.09,
       hitCooldownDuration: 0.16,
       knockbackImpulse: 520,
-      defaultChargeDirection: { x: 0, y: 1 }
+      defaultChargeDirection: { x: 0, y: 1 },
+      separationRadiusSq: 1600,
+      separationForce: 40
     };
 
     const PROJECTILE_CFG = {
@@ -463,6 +486,24 @@
         this.y = clamp(this.y, halfH, GAME_HEIGHT - halfH);
       }
 
+      spawnTrailSamples(dt, interval, life, alpha, maxSamples, transform) {
+        this.trailSpawnTimer += dt;
+        while (this.trailSpawnTimer >= interval) {
+          this.trailSpawnTimer -= interval;
+          this.trail.push({
+            x: transform.x,
+            y: transform.y,
+            angle: transform.angle || 0,
+            age: 0,
+            life: life,
+            alpha: alpha
+          });
+          if (this.trail.length > maxSamples) {
+            this.trail.shift();
+          }
+        }
+      }
+
       ageTrail(dt) {
         for (let i = this.trail.length - 1; i >= 0; i -= 1) {
           const sample = this.trail[i];
@@ -653,9 +694,8 @@
         }
       }
 
-      draw(ctx) {
+      drawTrail(ctx, now) {
         ctx.save();
-        const now = performance.now();
         for (let i = 0; i < this.trail.length; i += 1) {
           const t = this.trail[i];
           const alpha = (1 - t.age / t.life) * t.alpha;
@@ -668,7 +708,9 @@
           ctx.translate(-t.x, -t.y);
         }
         ctx.restore();
+      }
 
+      drawActionRing(ctx) {
         if (this.action && this.action.type === "charged") {
           const ringScale = 1.1;
           const ringLineWidth = 5 * ringScale * 1.3;
@@ -682,7 +724,9 @@
           ctx.stroke();
           ctx.restore();
         }
+      }
 
+      drawShadow(ctx) {
         const shadowY = this.y + this.height * 0.5 - 0.5;
         ctx.save();
         ctx.fillStyle = "rgba(0, 0, 0, 0.14)";
@@ -694,18 +738,19 @@
         ctx.ellipse(this.x, shadowY + 0.2, this.width * 1.6, 5.0, 0, 0, TAU);
         ctx.fill();
         ctx.restore();
+      }
 
-        if (this.hitFlashTimer > 0 && Math.sin(now * 0.03) > 0) {
-          return;
-        }
-
+      drawSprite(ctx, now) {
+        if (this.hitFlashTimer > 0 && Math.sin(now * 0.03) > 0) return;
         const floatOffset = Math.sin(now * 0.003) * 2;
         ctx.save();
         ctx.translate(this.x, this.y);
         ctx.rotate(this.spinAngle);
         ctx.drawImage(EMOJI_CANVASES.player, -EMOJI_CANVASES.player.width / 2, -EMOJI_CANVASES.player.height / 2 + 4 + floatOffset);
         ctx.restore();
+      }
 
+      drawChargeBar(ctx) {
         if (this.chargeVisible && !this.action) {
           const ringScale = 1.1;
           const chargeBarLineWidth = 3 * 1.3;
@@ -720,6 +765,15 @@
           ctx.stroke();
           ctx.restore();
         }
+      }
+
+      draw(ctx) {
+        const now = performance.now();
+        this.drawTrail(ctx, now);
+        this.drawActionRing(ctx);
+        this.drawShadow(ctx);
+        this.drawSprite(ctx, now);
+        this.drawChargeBar(ctx);
       }
     }
 
@@ -744,7 +798,7 @@
         this.displayHealth = this.maxHealth;
         this.alive = true;
 
-        this.state = "stalk";
+        this.state = ENEMY_STATES.STALK;
         this.chargeTriggerDistance = ENEMY_CFG.chargeTriggerDistance;
         this.windupDuration = ENEMY_CFG.windupDuration;
         this.chargeDuration = ENEMY_CFG.chargeDuration;
@@ -810,6 +864,57 @@
         }
       }
 
+      getStateHandlers() {
+        return {
+          [ENEMY_STATES.STALK]: (dt, playerDistance, toPlayerDir, game) => {
+            this.flankTimer += dt;
+            let targetDirX = toPlayerDir.x;
+            let targetDirY = toPlayerDir.y;
+            
+            if (playerDistance > this.chargeTriggerDistance) {
+              const flankAngle = Math.sin(this.flankTimer * this.flankFreq) * this.flankAmplitude * this.flankDir;
+              const cosA = Math.cos(flankAngle);
+              const sinA = Math.sin(flankAngle);
+              targetDirX = toPlayerDir.x * cosA - toPlayerDir.y * sinA;
+              targetDirY = toPlayerDir.x * sinA + toPlayerDir.y * cosA;
+            }
+            
+            this.updateStalkState(dt, playerDistance, { x: targetDirX, y: targetDirY }, game);
+            
+            let repX = 0;
+            let repY = 0;
+            let separated = false;
+            for (let i = 0; i < game.enemies.length; i++) {
+              const other = game.enemies[i];
+              if (other !== this && other.alive && !other.entering) {
+                const dx = this.x - other.x;
+                const dy = this.y - other.y;
+                const distSq = dx * dx + dy * dy;
+                if (distSq > 0 && distSq < ENEMY_CFG.separationRadiusSq) {
+                  const dist = Math.sqrt(distSq);
+                  repX += (dx / dist) * (ENEMY_CFG.separationForce - dist);
+                  repY += (dy / dist) * (ENEMY_CFG.separationForce - dist);
+                  separated = true;
+                }
+              }
+            }
+            if (separated) {
+              const currentV = { x: this.vx, y: this.vy };
+              const repDir = Vec2.normalize({ x: repX, y: repY });
+              const speed = Vec2.length(currentV) || this.stalkSpeed;
+              const blendedX = currentV.x * 0.7 + repDir.x * speed * 0.3;
+              const blendedY = currentV.y * 0.7 + repDir.y * speed * 0.3;
+              const blended = Vec2.normalize({ x: blendedX, y: blendedY });
+              this.vx = blended.x * speed;
+              this.vy = blended.y * speed;
+            }
+          },
+          [ENEMY_STATES.WINDUP]: (dt) => this.updateWindupState(dt),
+          [ENEMY_STATES.CHARGE]: (dt, pd, td, game) => this.updateChargeState(dt, game),
+          [ENEMY_STATES.RECOVER]: (dt) => this.updateRecoverState(dt)
+        };
+      }
+
       updateState(dt, playerDistance, toPlayerDir, game) {
         if (this.stunTimer > 0) {
           this.vx = 0;
@@ -825,55 +930,9 @@
           return;
         }
 
-        if (this.state === "stalk") {
-          this.flankTimer += dt;
-          
-          let targetDirX = toPlayerDir.x;
-          let targetDirY = toPlayerDir.y;
-          
-          if (playerDistance > this.chargeTriggerDistance) {
-            const flankAngle = Math.sin(this.flankTimer * this.flankFreq) * this.flankAmplitude * this.flankDir;
-            const cosA = Math.cos(flankAngle);
-            const sinA = Math.sin(flankAngle);
-            targetDirX = toPlayerDir.x * cosA - toPlayerDir.y * sinA;
-            targetDirY = toPlayerDir.x * sinA + toPlayerDir.y * cosA;
-          }
-          
-          this.updateStalkState(dt, playerDistance, { x: targetDirX, y: targetDirY }, game);
-          
-          let repX = 0;
-          let repY = 0;
-          let separated = false;
-          for (let i = 0; i < game.enemies.length; i++) {
-            const other = game.enemies[i];
-            if (other !== this && other.alive && !other.entering) {
-              const dx = this.x - other.x;
-              const dy = this.y - other.y;
-              const distSq = dx * dx + dy * dy;
-              if (distSq > 0 && distSq < 1600) {
-                const dist = Math.sqrt(distSq);
-                repX += (dx / dist) * (40 - dist);
-                repY += (dy / dist) * (40 - dist);
-                separated = true;
-              }
-            }
-          }
-          if (separated) {
-            const currentV = { x: this.vx, y: this.vy };
-            const repDir = Vec2.normalize({ x: repX, y: repY });
-            const speed = Vec2.length(currentV) || this.stalkSpeed;
-            const blendedX = currentV.x * 0.7 + repDir.x * speed * 0.3;
-            const blendedY = currentV.y * 0.7 + repDir.y * speed * 0.3;
-            const blended = Vec2.normalize({ x: blendedX, y: blendedY });
-            this.vx = blended.x * speed;
-            this.vy = blended.y * speed;
-          }
-        } else if (this.state === "windup") {
-          this.updateWindupState(dt);
-        } else if (this.state === "charge") {
-          this.updateChargeState(dt, game);
-        } else if (this.state === "recover") {
-          this.updateRecoverState(dt);
+        const handler = this.getStateHandlers()[this.state];
+        if (handler) {
+          handler(dt, playerDistance, toPlayerDir, game);
         }
       }
 
@@ -882,7 +941,7 @@
         this.vy = toPlayerDir.y * this.stalkSpeed;
         this.rollAngle = 0;
         if (playerDistance <= this.chargeTriggerDistance && this.postAttackCooldownTimer <= 0) {
-          this.state = "windup";
+          this.state = ENEMY_STATES.WINDUP;
           this.windupTimer = this.windupDuration;
           this.chargeDirection = toPlayerDir;
           if (Vec2.length(this.chargeDirection) <= EPSILON) {
@@ -899,7 +958,7 @@
         this.rollAngle = 0;
         this.windupTimer -= dt;
         if (this.windupTimer <= 0) {
-          this.state = "charge";
+          this.state = ENEMY_STATES.CHARGE;
           this.chargeTimer = this.chargeDuration;
           this.chargeElapsed = 0;
           const spinSign = this.chargeDirection.x >= 0 ? 1 : -1;
@@ -916,28 +975,21 @@
         this.spawnChargeTrail(dt);
         this.chargeTimer -= dt;
         if (this.chargeTimer <= 0) {
-          this.state = "recover";
+          this.state = ENEMY_STATES.RECOVER;
           this.recoverTimer = this.recoverDuration;
           this.postAttackCooldownTimer = this.postAttackCooldownDuration;
         }
       }
 
       spawnChargeTrail(dt) {
-        this.trailSpawnTimer += dt;
-        while (this.trailSpawnTimer >= ENEMY_CFG.chargeTrailInterval) {
-          this.trailSpawnTimer -= ENEMY_CFG.chargeTrailInterval;
-          this.trail.push({
-            x: this.x,
-            y: this.y,
-            angle: this.rollAngle,
-            age: 0,
-            life: ENEMY_CFG.chargeTrailLife,
-            alpha: ENEMY_CFG.chargeTrailAlpha
-          });
-          if (this.trail.length > ENEMY_CFG.maxTrailSamples) {
-            this.trail.shift();
-          }
-        }
+        this.spawnTrailSamples(
+          dt,
+          ENEMY_CFG.chargeTrailInterval,
+          ENEMY_CFG.chargeTrailLife,
+          ENEMY_CFG.chargeTrailAlpha,
+          ENEMY_CFG.maxTrailSamples,
+          { x: this.x, y: this.y, angle: this.rollAngle }
+        );
       }
 
       updateRecoverState(dt) {
@@ -947,7 +999,7 @@
         this.rollAngle = 0;
         this.recoverTimer -= dt;
         if (this.recoverTimer <= 0) {
-          this.state = "stalk";
+          this.state = ENEMY_STATES.STALK;
         }
       }
 
@@ -964,14 +1016,12 @@
 
       clampToPlayfield() {
         const halfW = this.width * 0.5;
-        const halfH = this.height * 0.5;
         if (this.entering) {
           if (this.x >= halfW && this.x <= GAME_WIDTH - halfW) {
             this.entering = false;
           }
         }
         
-        // When entering, restrict horizontal movement so they don't get knocked further out
         if (this.entering) {
           if (this.x < GAME_WIDTH * 0.5) {
             this.x = Math.max(this.x, this.prevX);
@@ -980,11 +1030,11 @@
             this.x = Math.min(this.x, this.prevX);
             this.knockbackVX = Math.min(0, this.knockbackVX);
           }
+          // Clamp vertically manually while entering
+          this.y = clamp(this.y, this.height * 0.5, GAME_HEIGHT - this.height * 0.5);
         } else {
-          this.x = clamp(this.x, halfW, GAME_WIDTH - halfW);
+          super.clampToPlayfield();
         }
-        // Always clamp vertically
-        this.y = clamp(this.y, halfH, GAME_HEIGHT - halfH);
       }
 
       isOverlappingPlayer(player) {
@@ -1039,7 +1089,7 @@
         this.hitFlashTimer = ENEMY_CFG.hitFlashDuration;
         this.hitCooldown = ENEMY_CFG.hitCooldownDuration;
         this.stunTimer = this.stunDuration;
-        this.state = "recover";
+        this.state = ENEMY_STATES.RECOVER;
         this.recoverTimer = this.recoverDuration;
         this.knockbackVX += awayFromHit.x * ENEMY_CFG.knockbackImpulse;
         this.knockbackVY += awayFromHit.y * ENEMY_CFG.knockbackImpulse;
@@ -1225,7 +1275,7 @@
         this.rollAngle = sway * 0.5;
         
         if (playerDistance <= this.chargeTriggerDistance && this.postAttackCooldownTimer <= 0) {
-          this.state = "windup";
+          this.state = ENEMY_STATES.WINDUP;
           this.windupTimer = this.windupDuration;
           this.chargeDirection = toPlayerDir;
           if (Vec2.length(this.chargeDirection) <= EPSILON) {
@@ -1262,7 +1312,7 @@
         this.rollAngle = 0;
         
         if (playerDistance <= this.chargeTriggerDistance && this.postAttackCooldownTimer <= 0) {
-          this.state = "windup";
+          this.state = ENEMY_STATES.WINDUP;
           this.windupTimer = this.windupDuration;
           this.chargeDirection = toPlayerDir;
           if (Vec2.length(this.chargeDirection) <= EPSILON) {
@@ -1277,7 +1327,7 @@
           const px = this.x + this.chargeDirection.x * 20;
           const py = this.y + this.chargeDirection.y * 20;
           game.projectiles.push(new Projectile(px, py, this.chargeDirection.x * PROJECTILE_CFG.speed, this.chargeDirection.y * PROJECTILE_CFG.speed));
-          this.state = "recover";
+          this.state = ENEMY_STATES.RECOVER;
           this.recoverTimer = this.recoverDuration;
           this.postAttackCooldownTimer = this.postAttackCooldownDuration;
         }
@@ -1317,7 +1367,7 @@
         this.rollAngle = 0;
         
         if (playerDistance <= this.chargeTriggerDistance && this.postAttackCooldownTimer <= 0) {
-          this.state = "windup";
+          this.state = ENEMY_STATES.WINDUP;
           this.windupTimer = this.windupDuration;
           this.chargeDirection = toPlayerDir;
           if (Vec2.length(this.chargeDirection) <= EPSILON) {
@@ -1362,21 +1412,14 @@
         this.x += this.vx * dt;
         this.y += this.vy * dt;
         
-        this.trailSpawnTimer += dt;
-        while (this.trailSpawnTimer >= PROJECTILE_CFG.trailInterval) {
-          this.trailSpawnTimer -= PROJECTILE_CFG.trailInterval;
-          this.trail.push({
-            x: this.x,
-            y: this.y,
-            angle: 0,
-            age: 0,
-            life: PROJECTILE_CFG.trailLife,
-            alpha: PROJECTILE_CFG.trailAlpha
-          });
-          if (this.trail.length > PROJECTILE_CFG.maxTrailSamples) {
-            this.trail.shift();
-          }
-        }
+        this.spawnTrailSamples(
+          dt,
+          PROJECTILE_CFG.trailInterval,
+          PROJECTILE_CFG.trailLife,
+          PROJECTILE_CFG.trailAlpha,
+          PROJECTILE_CFG.maxTrailSamples,
+          { x: this.x, y: this.y, angle: 0 }
+        );
         this.ageTrail(dt);
         
         if (this.alive && game.player.health > 0 && game.player.iframeTimer <= 0) {
@@ -1426,9 +1469,9 @@
         this.stateTimer = 0;
         
         this.levels = [
-          { svg: GRASS_SVG, waves: [] },
+          { svg: LEVEL_BACKGROUNDS.GRASS, waves: [] },
           { 
-            svg: DIRT_SVG, 
+            svg: LEVEL_BACKGROUNDS.DIRT, 
             waves: [
               { delay: 2, enemies: ["rat", "bat"] },
               { delay: 8, enemies: ["bat", "bat", "bat", "bat"] },
@@ -1436,7 +1479,7 @@
             ] 
           },
           { 
-            svg: SAND_SVG, 
+            svg: LEVEL_BACKGROUNDS.SAND, 
             waves: [
               { delay: 2, enemies: ["snake", "rat", "bat"] },
               { delay: 7, enemies: ["snake", "snake", "snake", "rat", "rat"] },
@@ -1445,7 +1488,7 @@
             ] 
           },
           { 
-            svg: STONE_SVG, 
+            svg: LEVEL_BACKGROUNDS.STONE, 
             waves: [
               { delay: 2, enemies: ["spider", "bat"] },
               { delay: 6, enemies: ["spider", "spider", "snake"] },
@@ -1454,7 +1497,7 @@
             ] 
           },
           { 
-            svg: LAVA_SVG, 
+            svg: LEVEL_BACKGROUNDS.LAVA, 
             waves: [
               { delay: 2, enemies: ["boar", "bat"] },
               { delay: 8, enemies: ["boar", "spider", "snake"] },
@@ -1520,13 +1563,7 @@
             this.game.input.pendingSwipe = null;
             
             // Clear particles
-            this.game.groundSplotches = [];
-            this.game.particles.particles = [];
-            this.game.rainbowParticles.particles = [];
-            this.game.flashRings = [];
-            this.game.projectiles = [];
-            this.game.enemies = [];
-            this.game.player.resetPosition();
+            this.game.clearLevelState();
             
             this.currentLevel++;
             if (this.currentLevel < this.levels.length) {
@@ -1713,7 +1750,7 @@
     class Tutorial {
       constructor(game) {
         this.game = game;
-        this.phase = "intro";
+        this.phase = TUTORIAL_PHASES.INTRO;
         this.phaseTime = 0;
         this.dodgeSlowMoTrigger = TUTORIAL_CFG.dodgeSlowMoTrigger;
         this.tutorialTimeScale = 1;
@@ -1736,46 +1773,31 @@
         this.textAlpha = 0;
       }
 
+      getPhaseHandlers() {
+        return {
+          [TUTORIAL_PHASES.INTRO]: (dt, player, enemy, input) => this.handleIntro(enemy, input),
+          [TUTORIAL_PHASES.WAIT_DODGE]: (dt, player, enemy, input) => this.handleWaitDodge(dt, player, input),
+          [TUTORIAL_PHASES.DODGING]: (dt, player, enemy, input) => this.handleDodging(dt, player, input),
+          [TUTORIAL_PHASES.POST_DODGE_WAIT]: (dt, player, enemy, input) => this.handlePostDodgeWait(input),
+          [TUTORIAL_PHASES.WAIT_HOLD]: (dt, player, enemy, input) => this.handleWaitHold(dt, player, enemy, input),
+          [TUTORIAL_PHASES.WAIT_ATTACK]: (dt, player, enemy, input) => this.handleWaitAttack(dt, player, input),
+          [TUTORIAL_PHASES.ATTACKING]: (dt, player, enemy, input) => this.handleAttacking(dt, player, enemy, input),
+          [TUTORIAL_PHASES.FREE_FIGHT_FIRST_RAT]: (dt, player, enemy, input) => this.handleFreeFightFirstRat(enemy),
+          [TUTORIAL_PHASES.CHAIN_SPAWNS]: (dt, player, enemy, input) => this.handleChainSpawns(dt),
+          [TUTORIAL_PHASES.COMPLETE_DELAY]: (dt, player, enemy, input) => this.handleCompleteDelay(dt),
+          [TUTORIAL_PHASES.WAITING_FOR_INPUT]: (dt, player, enemy, input) => this.handleWaitingForInput(dt)
+        };
+      }
+
       update(realDt) {
         if (!this.active) return;
         this.phaseTime += realDt;
         this.fingerAnimTime += realDt;
         const { player, enemy, input } = this.game;
 
-        switch (this.phase) {
-          case "intro":
-            this.handleIntro(enemy, input);
-            break;
-          case "waitDodge":
-            this.handleWaitDodge(realDt, player, input);
-            break;
-          case "dodging":
-            this.handleDodging(realDt, player, input);
-            break;
-          case "postDodgeWait":
-            this.handlePostDodgeWait(input);
-            break;
-          case "waitHold":
-            this.handleWaitHold(realDt, player, enemy, input);
-            break;
-          case "waitAttack":
-            this.handleWaitAttack(realDt, player, input);
-            break;
-          case "attacking":
-            this.handleAttacking(realDt, player, enemy, input);
-            break;
-          case "freeFightFirstRat":
-            this.handleFreeFightFirstRat(enemy);
-            break;
-          case "chainSpawns":
-            this.handleChainSpawns(realDt);
-            break;
-          case "completeDelay":
-            this.handleCompleteDelay(realDt);
-            break;
-          case "waitingForInput":
-            this.handleWaitingForInput(realDt);
-            break;
+        const handler = this.getPhaseHandlers()[this.phase];
+        if (handler) {
+          handler(realDt, player, enemy, input);
         }
       }
 
@@ -1784,7 +1806,7 @@
         input.pendingSwipe = null;
         if (enemy.state === "charge" && enemy.chargeDuration > 1e-7 &&
           enemy.chargeElapsed / enemy.chargeDuration >= this.dodgeSlowMoTrigger) {
-          this.setPhase("waitDodge");
+          this.setPhase(TUTORIAL_PHASES.WAIT_DODGE);
           this.tutorialTimeScale = 1;
         }
       }
@@ -1801,7 +1823,7 @@
           input.pendingSwipe = null;
           player.startMove("dodge", swipe.direction);
           this.tutorialTimeScale = 1;
-          this.setPhase("dodging");
+          this.setPhase(TUTORIAL_PHASES.DODGING);
         }
       }
 
@@ -1810,7 +1832,7 @@
         input.pendingSwipe = null;
         this.textAlpha = Math.max(0, this.textAlpha - realDt * 5);
         if (!player.action) {
-          this.setPhase("postDodgeWait");
+          this.setPhase(TUTORIAL_PHASES.POST_DODGE_WAIT);
         }
       }
 
@@ -1818,7 +1840,7 @@
         this.tutorialTimeScale = 1;
         input.pendingSwipe = null;
         if (this.phaseTime >= 0.2) {
-          this.setPhase("waitHold");
+          this.setPhase(TUTORIAL_PHASES.WAIT_HOLD);
           this.tutorialTimeScale = 1;
         }
       }
@@ -1837,7 +1859,7 @@
           const targetEnemy = this.game.getClosestAliveEnemy(player) || enemy;
           const dir = Vec2.sub({ x: targetEnemy.x, y: targetEnemy.y }, { x: player.x, y: player.y });
           this.attackDir = Vec2.length(dir) > 1e-5 ? Vec2.normalize(dir) : { x: 0, y: -1 };
-          this.setPhase("waitAttack");
+          this.setPhase(TUTORIAL_PHASES.WAIT_ATTACK);
         }
       }
 
@@ -1849,7 +1871,7 @@
           input.pendingSwipe = null;
           player.startMove("charged", swipe.direction);
           this.tutorialTimeScale = 1;
-          this.setPhase("attacking");
+          this.setPhase(TUTORIAL_PHASES.ATTACKING);
         }
       }
 
@@ -1860,11 +1882,11 @@
         if (!enemy.alive) {
           this.chainSpawnRemaining = TUTORIAL_CFG.chainSpawnCount;
           this.chainSpawnTimer = 0;
-          this.setPhase("chainSpawns");
+          this.setPhase(TUTORIAL_PHASES.CHAIN_SPAWNS);
           return;
         }
         if (!player.action && this.phaseTime > TUTORIAL_CFG.freeFightDelay) {
-          this.setPhase("freeFightFirstRat");
+          this.setPhase(TUTORIAL_PHASES.FREE_FIGHT_FIRST_RAT);
         }
       }
 
@@ -1874,7 +1896,7 @@
         if (!enemy.alive) {
           this.chainSpawnRemaining = TUTORIAL_CFG.chainSpawnCount;
           this.chainSpawnTimer = 0;
-          this.setPhase("chainSpawns");
+          this.setPhase(TUTORIAL_PHASES.CHAIN_SPAWNS);
         }
       }
 
@@ -1891,7 +1913,7 @@
         } else {
           const allDead = this.game.enemies.length > 0 && this.game.enemies.every(e => !e.alive);
           if (allDead) {
-            this.setPhase("completeDelay");
+            this.setPhase(TUTORIAL_PHASES.COMPLETE_DELAY);
           }
         }
       }
@@ -1900,7 +1922,7 @@
         this.tutorialTimeScale = 1;
         this.textAlpha = 0;
         if (this.phaseTime >= 1.0) {
-          this.setPhase("waitingForInput");
+          this.setPhase(TUTORIAL_PHASES.WAITING_FOR_INPUT);
           this.game.input.down = false;
           this.game.input.pendingSwipe = null;
         }
@@ -1913,16 +1935,10 @@
           this.game.input.down = false;
           this.game.input.pendingSwipe = null;
           
-          this.game.groundSplotches = [];
-          this.game.particles.particles = [];
-          this.game.rainbowParticles.particles = [];
-          this.game.flashRings = [];
-          this.game.projectiles = [];
-          this.game.enemies = [];
-          this.game.player.resetPosition();
+          this.game.clearLevelState();
 
           this.active = false;
-          this.phase = "done";
+          this.phase = TUTORIAL_PHASES.DONE;
           this.game.levelManager.start();
         }
       }
@@ -1954,7 +1970,7 @@
         enemy.alive = true;
         enemy.entering = true;
         enemy.health = enemy.maxHealth;
-        enemy.state = "stalk";
+        enemy.state = ENEMY_STATES.STALK;
         enemy.windupTimer = 0;
         enemy.chargeTimer = 0;
         enemy.recoverTimer = 0;
@@ -1980,21 +1996,21 @@
         const textY = GAME_HEIGHT * 0.62;
         const indicatorY = textY + 50;
 
-        if (this.phase === "waitDodge" && this.textAlpha > 0) {
+        if (this.phase === TUTORIAL_PHASES.WAIT_DODGE && this.textAlpha > 0) {
           this.drawDimOverlay(ctx);
           ctx.save();
           ctx.globalAlpha = this.textAlpha;
           this.drawText(ctx, "Swipe to dodge!", centerX, textY, 30);
           this.drawSwipeIndicator(ctx, centerX, indicatorY, { x: -1, y: 0 });
           ctx.restore();
-        } else if (this.phase === "waitHold" && this.textAlpha > 0) {
+        } else if (this.phase === TUTORIAL_PHASES.WAIT_HOLD && this.textAlpha > 0) {
           this.drawDimOverlay(ctx);
           ctx.save();
           ctx.globalAlpha = this.textAlpha;
           this.drawText(ctx, "Hold", centerX, textY, 30);
           this.drawHoldIndicator(ctx, centerX, indicatorY);
           ctx.restore();
-        } else if (this.phase === "waitAttack" && this.textAlpha > 0) {
+        } else if (this.phase === TUTORIAL_PHASES.WAIT_ATTACK && this.textAlpha > 0) {
           this.drawDimOverlay(ctx);
           ctx.save();
           ctx.globalAlpha = this.textAlpha;
@@ -2112,6 +2128,176 @@
       }
     }
 
+    class Renderer {
+      constructor(game, ctx, screen, view) {
+        this.game = game;
+        this.ctx = ctx;
+        this.screen = screen;
+        this.view = view;
+      }
+
+      renderLevelComplete(titleText, showTapPrompt) {
+        const textY = GAME_HEIGHT * 0.45;
+        const centerX = GAME_WIDTH * 0.5;
+        this.ctx.save();
+        this.ctx.fillStyle = "rgba(0,0,0,0.5)";
+        this.ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
+        this.ctx.font = "bold 36px Arial";
+        this.ctx.textAlign = "center";
+        this.ctx.textBaseline = "middle";
+        this.ctx.fillStyle = "rgba(0,0,0,0.5)";
+        this.ctx.fillText(titleText, centerX + 2, textY + 2);
+        this.ctx.fillStyle = "#ffffff";
+        this.ctx.fillText(titleText, centerX, textY);
+        if (showTapPrompt) {
+          const blink = Math.sin(performance.now() * 0.005) > 0;
+          if (blink) {
+            this.ctx.font = "bold 24px Arial";
+            this.ctx.fillStyle = "#ffffff";
+            this.ctx.fillText("Tap to continue", centerX, textY + 60);
+          }
+        }
+        this.ctx.restore();
+      }
+
+      renderBackdrop() {
+        this.ctx.clearRect(0, 0, this.screen.width, this.screen.height);
+        this.ctx.fillStyle = "#4a4a4a";
+        this.ctx.fillRect(0, 0, this.screen.width, this.screen.height);
+      }
+
+      renderPlayfield() {
+        if (this.game.bgPattern) {
+          this.ctx.fillStyle = this.game.bgPattern;
+        } else {
+          this.ctx.fillStyle = "#7cb342";
+        }
+        this.ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
+
+        this.ctx.strokeStyle = "#558b2f";
+        this.ctx.lineWidth = 4;
+        this.ctx.strokeRect(2, 2, GAME_WIDTH - 4, GAME_HEIGHT - 4);
+      }
+
+      renderGroundSplotches() {
+        for (let i = 0; i < this.game.groundSplotches.length; i++) {
+          const s = this.game.groundSplotches[i];
+          this.ctx.save();
+          this.ctx.globalAlpha = s.alpha;
+          this.ctx.fillStyle = `rgb(${s.r},${s.g},${s.b})`;
+          this.ctx.beginPath();
+          this.ctx.arc(s.x, s.y, s.radius, 0, TAU);
+          this.ctx.fill();
+          this.ctx.restore();
+        }
+      }
+
+      renderEntities(nowSeconds) {
+        for (let i = 0; i < this.game.enemies.length; i++) {
+          this.game.enemies[i].draw(this.ctx, nowSeconds);
+        }
+        this.game.player.draw(this.ctx);
+        for (let i = 0; i < this.game.projectiles.length; i++) {
+          this.game.projectiles[i].draw(this.ctx);
+        }
+      }
+
+      renderParticles() {
+        this.game.particles.draw(this.ctx);
+        this.game.rainbowParticles.draw(this.ctx);
+      }
+
+      renderFlashRings() {
+        for (let i = 0; i < this.game.flashRings.length; i++) {
+          const ring = this.game.flashRings[i];
+          const t = ring.age / ring.life;
+          const radius = ring.maxRadius * easeOutCubic(t);
+          const alpha = 1 - t;
+
+          this.ctx.save();
+          this.ctx.globalAlpha = alpha;
+
+          if (ring.type === "shockwave") {
+            this.ctx.strokeStyle = "#ffffff";
+            this.ctx.lineWidth = Math.max(0.5, 4 * (1 - t));
+            this.ctx.beginPath();
+            this.ctx.arc(ring.x, ring.y, radius, 0, TAU);
+            this.ctx.stroke();
+          } else if (ring.type === "deathFlash") {
+            this.ctx.fillStyle = "#ffffff";
+            this.ctx.beginPath();
+            this.ctx.arc(ring.x, ring.y, radius, 0, TAU);
+            this.ctx.fill();
+          }
+
+          this.ctx.restore();
+        }
+      }
+
+      renderTutorial() {
+        if (this.game.tutorial) {
+          this.game.tutorial.draw(this.ctx);
+        }
+      }
+
+      renderHealthBar() {
+        const hbWidth = UI_CFG.healthBarWidth;
+        const hbHeight = UI_CFG.healthBarHeight;
+        const hbX = (GAME_WIDTH - hbWidth) * 0.5;
+        const hbY = GAME_HEIGHT - UI_CFG.healthBarBottomMargin;
+        const hpFrac = this.game.player.health / this.game.player.maxHealth;
+        const displayHpFrac = this.game.player.displayHealth / this.game.player.maxHealth;
+        this.ctx.save();
+        this.ctx.globalAlpha = 0.35;
+        this.ctx.fillStyle = "#000000";
+        this.ctx.fillRect(hbX - 1, hbY - 1, hbWidth + 2, hbHeight + 2);
+        this.ctx.restore();
+        
+        this.ctx.save();
+        this.ctx.globalAlpha = 1;
+        this.ctx.fillStyle = "#ffffff";
+        this.ctx.fillRect(hbX, hbY, hbWidth * displayHpFrac, hbHeight);
+        this.ctx.restore();
+
+        this.ctx.save();
+        this.ctx.globalAlpha = 0.25;
+        this.ctx.fillStyle = "#440000";
+        this.ctx.fillRect(hbX, hbY, hbWidth, hbHeight);
+        this.ctx.restore();
+        
+        if (hpFrac > 0) {
+          this.ctx.fillStyle = "#cc2222";
+          this.ctx.fillRect(hbX, hbY, hbWidth * hpFrac, hbHeight);
+        }
+      }
+
+      render() {
+        this.renderBackdrop();
+
+        this.ctx.save();
+        this.ctx.translate(this.view.offsetX, this.view.offsetY);
+        this.ctx.scale(this.view.scale, this.view.scale);
+        this.ctx.translate(this.game.shakeOffsetX, this.game.shakeOffsetY);
+
+        this.renderPlayfield();
+        this.renderGroundSplotches();
+        const nowSeconds = performance.now() * 0.001;
+        this.renderEntities(nowSeconds);
+        this.renderParticles();
+        this.renderFlashRings();
+        this.renderTutorial();
+        
+        if (this.game.levelManager.active && (this.game.levelManager.state === "completeDelay" || this.game.levelManager.state === "waitingForInput")) {
+          this.renderLevelComplete(`Level ${this.game.levelManager.currentLevel} Complete!`, this.game.levelManager.state === "waitingForInput");
+        } else if (this.game.tutorial && this.game.tutorial.active && (this.game.tutorial.phase === TUTORIAL_PHASES.COMPLETE_DELAY || this.game.tutorial.phase === TUTORIAL_PHASES.WAITING_FOR_INPUT)) {
+          this.renderLevelComplete("Tutorial Complete!", this.game.tutorial.phase === TUTORIAL_PHASES.WAITING_FOR_INPUT);
+        }
+        
+        this.renderHealthBar();
+        this.ctx.restore();
+      }
+    }
+
     class Game {
       constructor(canvas) {
         this.canvas = canvas;
@@ -2128,7 +2314,7 @@
 
         this.bgImage = new Image();
         this.bgPattern = null;
-        this.setBackground(GRASS_SVG);
+        this.setBackground(LEVEL_BACKGROUNDS.GRASS);
 
         this.input = new InputSystem((event) => this.eventToWorld(event));
         this.input.bind(canvas);
@@ -2137,7 +2323,7 @@
         this.enemies = [this.enemy];
         this.projectiles = [];
         this.levelManager = new LevelManager(this);
-        this.enemy.state = "charge";
+        this.enemy.state = ENEMY_STATES.CHARGE;
         this.enemy.chargeDirection = { x: 0, y: 1 };
         this.enemy.chargeTimer = this.enemy.chargeDuration;
         this.enemy.chargeElapsed = 0;
@@ -2179,6 +2365,16 @@
           this.bgPattern = this.ctx.createPattern(this.bgImage, "repeat");
         };
         this.bgImage.src = svgData;
+      }
+
+      clearLevelState() {
+        this.groundSplotches = [];
+        this.particles.particles = [];
+        this.rainbowParticles.particles = [];
+        this.flashRings = [];
+        this.projectiles = [];
+        this.enemies = [];
+        this.player.resetPosition();
       }
 
       spawnEnemy(type) {
@@ -2303,168 +2499,10 @@
       }
 
       render() {
-        const ctx = this.ctx;
-        const w = this.screen.width;
-        const h = this.screen.height;
-
-        this.renderBackdrop(ctx, w, h);
-
-        ctx.save();
-        ctx.translate(this.view.offsetX, this.view.offsetY);
-        ctx.scale(this.view.scale, this.view.scale);
-        ctx.translate(this.shakeOffsetX, this.shakeOffsetY);
-
-        this.renderPlayfield(ctx);
-        this.renderGroundSplotches(ctx);
-        const nowSeconds = performance.now() * 0.001;
-        this.renderEntities(ctx, nowSeconds);
-        this.renderParticles(ctx);
-        this.renderFlashRings(ctx);
-        this.renderTutorial(ctx);
-        
-        if (this.levelManager.active && (this.levelManager.state === "completeDelay" || this.levelManager.state === "waitingForInput")) {
-          this.renderLevelComplete(ctx, `Level ${this.levelManager.currentLevel} Complete!`, this.levelManager.state === "waitingForInput");
-        } else if (this.tutorial && this.tutorial.active && (this.tutorial.phase === "completeDelay" || this.tutorial.phase === "waitingForInput")) {
-          this.renderLevelComplete(ctx, "Tutorial Complete!", this.tutorial.phase === "waitingForInput");
+        if (!this.renderer) {
+          this.renderer = new Renderer(this, this.ctx, this.screen, this.view);
         }
-        
-        this.renderHealthBar(ctx);
-        ctx.restore();
-      }
-
-      renderLevelComplete(ctx, titleText, showTapPrompt) {
-        const textY = GAME_HEIGHT * 0.45;
-        const centerX = GAME_WIDTH * 0.5;
-        ctx.save();
-        ctx.fillStyle = "rgba(0,0,0,0.5)";
-        ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
-        ctx.font = "bold 36px Arial";
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        ctx.fillStyle = "rgba(0,0,0,0.5)";
-        ctx.fillText(titleText, centerX + 2, textY + 2);
-        ctx.fillStyle = "#ffffff";
-        ctx.fillText(titleText, centerX, textY);
-        if (showTapPrompt) {
-          const blink = Math.sin(performance.now() * 0.005) > 0;
-          if (blink) {
-            ctx.font = "bold 24px Arial";
-            ctx.fillStyle = "#ffffff";
-            ctx.fillText("Tap to continue", centerX, textY + 60);
-          }
-        }
-        ctx.restore();
-      }
-
-      renderBackdrop(ctx, w, h) {
-        ctx.clearRect(0, 0, w, h);
-        ctx.fillStyle = "#4a4a4a";
-        ctx.fillRect(0, 0, w, h);
-      }
-
-      renderPlayfield(ctx) {
-        if (this.bgPattern) {
-          ctx.fillStyle = this.bgPattern;
-        } else {
-          ctx.fillStyle = "#7cb342"; // Fallback color
-        }
-        ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
-
-        ctx.strokeStyle = "#558b2f"; // Darker green border
-        ctx.lineWidth = 4;
-        ctx.strokeRect(2, 2, GAME_WIDTH - 4, GAME_HEIGHT - 4);
-      }
-
-      renderGroundSplotches(ctx) {
-        for (let i = 0; i < this.groundSplotches.length; i++) {
-          const s = this.groundSplotches[i];
-          ctx.save();
-          ctx.globalAlpha = s.alpha;
-          ctx.fillStyle = `rgb(${s.r},${s.g},${s.b})`;
-          ctx.beginPath();
-          ctx.arc(s.x, s.y, s.radius, 0, TAU);
-          ctx.fill();
-          ctx.restore();
-        }
-      }
-
-      renderEntities(ctx, nowSeconds) {
-        for (let i = 0; i < this.enemies.length; i++) {
-          this.enemies[i].draw(ctx, nowSeconds);
-        }
-        this.player.draw(ctx);
-        for (let i = 0; i < this.projectiles.length; i++) {
-          this.projectiles[i].draw(ctx);
-        }
-      }
-
-      renderParticles(ctx) {
-        this.particles.draw(ctx);
-        this.rainbowParticles.draw(ctx);
-      }
-
-      renderFlashRings(ctx) {
-        for (let i = 0; i < this.flashRings.length; i++) {
-          const ring = this.flashRings[i];
-          const t = ring.age / ring.life;
-          const radius = ring.maxRadius * easeOutCubic(t);
-          const alpha = 1 - t;
-
-          ctx.save();
-          ctx.globalAlpha = alpha;
-
-          if (ring.type === "shockwave") {
-            ctx.strokeStyle = "#ffffff";
-            ctx.lineWidth = Math.max(0.5, 4 * (1 - t));
-            ctx.beginPath();
-            ctx.arc(ring.x, ring.y, radius, 0, TAU);
-            ctx.stroke();
-          } else if (ring.type === "deathFlash") {
-            ctx.fillStyle = "#ffffff";
-            ctx.beginPath();
-            ctx.arc(ring.x, ring.y, radius, 0, TAU);
-            ctx.fill();
-          }
-
-          ctx.restore();
-        }
-      }
-
-      renderTutorial(ctx) {
-        if (this.tutorial) {
-          this.tutorial.draw(ctx);
-        }
-      }
-
-      renderHealthBar(ctx) {
-        const hbWidth = UI_CFG.healthBarWidth;
-        const hbHeight = UI_CFG.healthBarHeight;
-        const hbX = (GAME_WIDTH - hbWidth) * 0.5;
-        const hbY = GAME_HEIGHT - UI_CFG.healthBarBottomMargin;
-        const hpFrac = this.player.health / this.player.maxHealth;
-        const displayHpFrac = this.player.displayHealth / this.player.maxHealth;
-        ctx.save();
-        ctx.globalAlpha = 0.35;
-        ctx.fillStyle = "#000000";
-        ctx.fillRect(hbX - 1, hbY - 1, hbWidth + 2, hbHeight + 2);
-        ctx.restore();
-        
-        ctx.save();
-        ctx.globalAlpha = 1;
-        ctx.fillStyle = "#ffffff";
-        ctx.fillRect(hbX, hbY, hbWidth * displayHpFrac, hbHeight);
-        ctx.restore();
-
-        ctx.save();
-        ctx.globalAlpha = 0.25;
-        ctx.fillStyle = "#440000";
-        ctx.fillRect(hbX, hbY, hbWidth, hbHeight);
-        ctx.restore();
-        
-        if (hpFrac > 0) {
-          ctx.fillStyle = "#cc2222";
-          ctx.fillRect(hbX, hbY, hbWidth * hpFrac, hbHeight);
-        }
+        this.renderer.render();
       }
 
       frame = (timestamp) => {
