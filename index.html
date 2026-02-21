@@ -54,6 +54,44 @@
       <path d="M80,30 Q85,15 90,30 Q95,15 100,30" stroke="%23558b2f" stroke-width="2" fill="none"/>
     </svg>`;
 
+    const DIRT_SVG = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">
+      <rect width="100" height="100" fill="%238d6e63"/>
+      <path d="M15,25 Q30,15 45,25 T75,25" stroke="%23795548" stroke-width="3" fill="none"/>
+      <path d="M25,65 Q40,55 55,65 T85,65" stroke="%236d4c41" stroke-width="2" fill="none"/>
+      <circle cx="20" cy="80" r="3" fill="%235d4037"/>
+      <circle cx="80" cy="30" r="4" fill="%23795548"/>
+      <circle cx="50" cy="90" r="2" fill="%235d4037"/>
+    </svg>`;
+
+    const SAND_SVG = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">
+      <rect width="100" height="100" fill="%23ffe082"/>
+      <path d="M0,30 Q25,10 50,30 T100,30" stroke="%23ffd54f" stroke-width="4" fill="none"/>
+      <path d="M0,70 Q25,50 50,70 T100,70" stroke="%23ffca28" stroke-width="3" fill="none"/>
+      <circle cx="15" cy="45" r="1.5" fill="%23ffc107"/>
+      <circle cx="75" cy="85" r="2" fill="%23ffca28"/>
+    </svg>`;
+
+    const STONE_SVG = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">
+      <rect width="100" height="100" fill="%23757575"/>
+      <rect x="0" y="0" width="48" height="30" fill="%239e9e9e" stroke="%23616161" stroke-width="2"/>
+      <rect x="50" y="0" width="50" height="30" fill="%23bdbdbd" stroke="%23616161" stroke-width="2"/>
+      <rect x="0" y="32" width="25" height="35" fill="%23bdbdbd" stroke="%23616161" stroke-width="2"/>
+      <rect x="27" y="32" width="50" height="35" fill="%239e9e9e" stroke="%23616161" stroke-width="2"/>
+      <rect x="79" y="32" width="21" height="35" fill="%23e0e0e0" stroke="%23616161" stroke-width="2"/>
+      <rect x="0" y="69" width="40" height="31" fill="%239e9e9e" stroke="%23616161" stroke-width="2"/>
+      <rect x="42" y="69" width="58" height="31" fill="%23bdbdbd" stroke="%23616161" stroke-width="2"/>
+    </svg>`;
+
+    const LAVA_SVG = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">
+      <rect width="100" height="100" fill="%23212121"/>
+      <path d="M0,20 L20,30 L40,15 L60,40 L80,25 L100,45" stroke="%23e65100" stroke-width="4" fill="none"/>
+      <path d="M0,60 L25,50 L45,70 L70,55 L100,75" stroke="%23ef6c00" stroke-width="3" fill="none"/>
+      <path d="M30,70 L40,90 L60,80 L80,100" stroke="%23bf360c" stroke-width="5" fill="none"/>
+      <circle cx="20" cy="25" r="3" fill="%23ff9800"/>
+      <circle cx="80" cy="30" r="2" fill="%23ffb300"/>
+      <circle cx="50" cy="65" r="4" fill="%23ff9800"/>
+    </svg>`;
+
     const INPUT_CFG = {
       minSwipeDistance: 14,
       chargeStartDelay: 0.1,
@@ -113,6 +151,15 @@
       defaultChargeDirection: { x: 0, y: 1 }
     };
 
+    const PROJECTILE_CFG = {
+      speed: 350,
+      radius: 6,
+      trailInterval: 0.016,
+      trailLife: 0.25,
+      trailAlpha: 0.4,
+      maxTrailSamples: 20
+    };
+
     const FX_CFG = {
       hitParticleCount: 12,
       hitParticleSpread: Math.PI * 0.8,
@@ -127,11 +174,11 @@
       hitRingRadius: 80,
       hitRingLife: 0.25,
       hitShake: { intensity: 6, duration: 0.15 },
-      hitstopDuration: 0.05,
+      hitstopDuration: 0.03,
       hitTimeSlow: { duration: 0.3, minScale: 0.15 },
       deathShake: { intensity: 14, duration: 0.3 },
-      deathHitstopDuration: 0.12,
-      deathTimeSlow: { duration: 0.55, minScale: 0.06 },
+      deathHitstopDuration: 0.06,
+      deathTimeSlow: { duration: 0.3, minScale: 0.15 },
       deathRingRadius: 120,
       deathRingLife: 0.4,
       deathParticleCount: 24,
@@ -188,15 +235,26 @@
       return 1 - (invT * invT * invT);
     }
 
-    const ratEmojiCanvas = document.createElement("canvas");
-    const ratEmojiCtx = ratEmojiCanvas.getContext("2d");
-    const ratFontSize = ENEMY_CFG.height * 1.2;
-    ratEmojiCanvas.width = ratFontSize * 1.5;
-    ratEmojiCanvas.height = ratFontSize * 1.5;
-    ratEmojiCtx.font = `${ratFontSize}px sans-serif`;
-    ratEmojiCtx.textAlign = "center";
-    ratEmojiCtx.textBaseline = "middle";
-    ratEmojiCtx.fillText("🐀", ratEmojiCanvas.width / 2, ratEmojiCanvas.height / 2);
+    function createEmojiCanvas(emoji, size) {
+      const canvas = document.createElement("canvas");
+      const ctx = canvas.getContext("2d");
+      const fontSize = size * 1.2;
+      canvas.width = fontSize * 1.5;
+      canvas.height = fontSize * 1.5;
+      ctx.font = `${fontSize}px sans-serif`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(emoji, canvas.width / 2, canvas.height / 2);
+      return canvas;
+    }
+
+    const EMOJI_CANVASES = {
+      rat: createEmojiCanvas("🐀", ENEMY_CFG.height),
+      bat: createEmojiCanvas("🦇", ENEMY_CFG.height),
+      snake: createEmojiCanvas("🐍", ENEMY_CFG.height),
+      spider: createEmojiCanvas("🕷️", ENEMY_CFG.height),
+      boar: createEmojiCanvas("🐗", ENEMY_CFG.height * 1.5)
+    };
 
     class MathUtils {
       static swapAndPop(array, index) {
@@ -484,6 +542,16 @@
         this.hitFlashTimer = Math.max(0, this.hitFlashTimer - dt);
       }
 
+      resetPosition() {
+        this.x = GAME_WIDTH * 0.5;
+        this.y = GAME_HEIGHT * 0.5;
+        this.vx = 0;
+        this.vy = 0;
+        this.action = null;
+        this.trail = [];
+        this.spinAngle = 0;
+      }
+
       consumeQueuedSwipe(input) {
         const swipe = input.consumeSwipe();
         if (swipe) {
@@ -672,9 +740,10 @@
       }
     }
 
-    class TriangleEnemy extends Entity {
-      constructor(x, y) {
+    class BaseEnemy extends Entity {
+      constructor(x, y, emojiKey) {
         super(x, y, ENEMY_CFG.width, ENEMY_CFG.height);
+        this.emojiCanvas = EMOJI_CANVASES[emojiKey] || EMOJI_CANVASES.rat;
         this.prevX = x;
         this.prevY = y;
         this.prevRollAngle = 0;
@@ -714,9 +783,14 @@
         this.rollAngle = 0;
         this.chargeSpinAmount = ENEMY_CFG.chargeSpinAmount;
         this.chargeElapsed = 0;
+        
+        this.flankDir = Math.random() < 0.5 ? 1 : -1;
+        this.flankTimer = Math.random() * TAU;
+        this.flankFreq = 0.3 + Math.random() * 0.5;
+        this.flankAmplitude = 0.3 + Math.random() * 0.4;
       }
 
-      update(dt, player) {
+      update(dt, player, game) {
         if (!this.alive) {
           return;
         }
@@ -729,7 +803,7 @@
         const playerDistance = Vec2.length(toPlayer);
         const toPlayerDir = playerDistance > EPSILON ? Vec2.mul(toPlayer, 1 / playerDistance) : { x: 0, y: 0 };
 
-        this.updateState(dt, playerDistance, toPlayerDir);
+        this.updateState(dt, playerDistance, toPlayerDir, game);
         this.applyKnockbackDamping(dt);
         this.integratePosition(dt);
         this.clampToPlayfield();
@@ -749,7 +823,7 @@
         this.postAttackCooldownTimer = Math.max(0, this.postAttackCooldownTimer - dt);
       }
 
-      updateState(dt, playerDistance, toPlayerDir) {
+      updateState(dt, playerDistance, toPlayerDir, game) {
         if (this.stunTimer > 0) {
           this.vx = 0;
           this.vy = 0;
@@ -757,18 +831,70 @@
           return;
         }
 
+        if (this.entering) {
+          const centerX = GAME_WIDTH * 0.5;
+          const centerY = GAME_HEIGHT * 0.5;
+          const toCenter = Vec2.sub({ x: centerX, y: centerY }, { x: this.x, y: this.y });
+          const toCenterDir = Vec2.normalize(toCenter);
+          this.vx = toCenterDir.x * this.stalkSpeed;
+          this.vy = toCenterDir.y * this.stalkSpeed;
+          this.rollAngle = 0;
+          return;
+        }
+
         if (this.state === "stalk") {
-          this.updateStalkState(playerDistance, toPlayerDir);
+          this.flankTimer += dt;
+          
+          let targetDirX = toPlayerDir.x;
+          let targetDirY = toPlayerDir.y;
+          
+          if (playerDistance > this.chargeTriggerDistance) {
+            const flankAngle = Math.sin(this.flankTimer * this.flankFreq) * this.flankAmplitude * this.flankDir;
+            const cosA = Math.cos(flankAngle);
+            const sinA = Math.sin(flankAngle);
+            targetDirX = toPlayerDir.x * cosA - toPlayerDir.y * sinA;
+            targetDirY = toPlayerDir.x * sinA + toPlayerDir.y * cosA;
+          }
+          
+          this.updateStalkState(dt, playerDistance, { x: targetDirX, y: targetDirY }, game);
+          
+          let repX = 0;
+          let repY = 0;
+          let separated = false;
+          for (let i = 0; i < game.enemies.length; i++) {
+            const other = game.enemies[i];
+            if (other !== this && other.alive && !other.entering) {
+              const dx = this.x - other.x;
+              const dy = this.y - other.y;
+              const distSq = dx * dx + dy * dy;
+              if (distSq > 0 && distSq < 1600) {
+                const dist = Math.sqrt(distSq);
+                repX += (dx / dist) * (40 - dist);
+                repY += (dy / dist) * (40 - dist);
+                separated = true;
+              }
+            }
+          }
+          if (separated) {
+            const currentV = { x: this.vx, y: this.vy };
+            const repDir = Vec2.normalize({ x: repX, y: repY });
+            const speed = Vec2.length(currentV) || this.stalkSpeed;
+            const blendedX = currentV.x * 0.7 + repDir.x * speed * 0.3;
+            const blendedY = currentV.y * 0.7 + repDir.y * speed * 0.3;
+            const blended = Vec2.normalize({ x: blendedX, y: blendedY });
+            this.vx = blended.x * speed;
+            this.vy = blended.y * speed;
+          }
         } else if (this.state === "windup") {
           this.updateWindupState(dt);
         } else if (this.state === "charge") {
-          this.updateChargeState(dt);
+          this.updateChargeState(dt, game);
         } else if (this.state === "recover") {
           this.updateRecoverState(dt);
         }
       }
 
-      updateStalkState(playerDistance, toPlayerDir) {
+      updateStalkState(dt, playerDistance, toPlayerDir) {
         this.vx = toPlayerDir.x * this.stalkSpeed;
         this.vy = toPlayerDir.y * this.stalkSpeed;
         this.rollAngle = 0;
@@ -798,7 +924,7 @@
         }
       }
 
-      updateChargeState(dt) {
+      updateChargeState(dt, game) {
         this.vx = this.chargeDirection.x * this.chargeSpeed;
         this.vy = this.chargeDirection.y * this.chargeSpeed;
         this.chargeElapsed += dt;
@@ -857,14 +983,14 @@
         const halfW = this.width * 0.5;
         const halfH = this.height * 0.5;
         if (this.entering) {
-          if (this.x >= halfW && this.x <= GAME_WIDTH - halfW) {
+          if (this.x >= halfW && this.x <= GAME_WIDTH - halfW && this.y >= halfH && this.y <= GAME_HEIGHT - halfH) {
             this.entering = false;
           }
         }
         if (!this.entering) {
           this.x = clamp(this.x, halfW, GAME_WIDTH - halfW);
+          this.y = clamp(this.y, halfH, GAME_HEIGHT - halfH);
         }
-        this.y = clamp(this.y, halfH, GAME_HEIGHT - halfH);
       }
 
       isOverlappingPlayer(player) {
@@ -1013,7 +1139,7 @@
           ctx.globalAlpha = alpha;
           ctx.translate(t.x, t.y);
           ctx.rotate(t.angle);
-          ctx.drawImage(ratEmojiCanvas, -ratEmojiCanvas.width / 2, -ratEmojiCanvas.height / 2);
+          ctx.drawImage(this.emojiCanvas, -this.emojiCanvas.width / 2, -this.emojiCanvas.height / 2);
           ctx.rotate(-t.angle);
           ctx.translate(-t.x, -t.y);
         }
@@ -1045,8 +1171,350 @@
         }
         ctx.translate(rx, ry);
         ctx.rotate(waddle + rAngle);
-        ctx.drawImage(ratEmojiCanvas, -ratEmojiCanvas.width / 2, -ratEmojiCanvas.height / 2);
+        ctx.drawImage(this.emojiCanvas, -this.emojiCanvas.width / 2, -this.emojiCanvas.height / 2);
         ctx.restore();
+      }
+    }
+
+    class RatEnemy extends BaseEnemy {
+      constructor(x, y) {
+        super(x, y, "rat");
+      }
+    }
+
+    class BatEnemy extends BaseEnemy {
+      constructor(x, y) {
+        super(x, y, "bat");
+        this.stalkSpeed = ENEMY_CFG.stalkSpeed * 1.5;
+        this.chargeTriggerDistance = ENEMY_CFG.chargeTriggerDistance * 1.2;
+        this.windupDuration = 0.42;
+        this.chargeDuration = ENEMY_CFG.chargeDuration * 0.8;
+        this.recoverDuration = ENEMY_CFG.recoverDuration * 0.5;
+        this.postAttackCooldownDuration = ENEMY_CFG.postAttackCooldownDuration * 0.5;
+        this.chargeSpeed = ENEMY_CFG.chargeSpeed * 1.2;
+        this.healthQuarters = 2;
+        this.sineTimer = Math.random() * TAU;
+        this.sineFreq = 3 + Math.random() * 3;
+      }
+      updateStalkState(dt, playerDistance, toPlayerDir) {
+        this.sineTimer += dt;
+        const perp = { x: -toPlayerDir.y, y: toPlayerDir.x };
+        const sway = Math.sin(this.sineTimer * this.sineFreq) * 0.5;
+        const moveDir = Vec2.normalize(Vec2.add(toPlayerDir, Vec2.mul(perp, sway)));
+        this.vx = moveDir.x * this.stalkSpeed;
+        this.vy = moveDir.y * this.stalkSpeed;
+        this.rollAngle = sway * 0.5;
+        
+        if (playerDistance <= this.chargeTriggerDistance && this.postAttackCooldownTimer <= 0) {
+          this.state = "windup";
+          this.windupTimer = this.windupDuration;
+          this.chargeDirection = toPlayerDir;
+          if (Vec2.length(this.chargeDirection) <= EPSILON) {
+            this.chargeDirection = { x: 0, y: 1 };
+          }
+          this.vx = 0;
+          this.vy = 0;
+        }
+      }
+    }
+
+    class SnakeEnemy extends BaseEnemy {
+      constructor(x, y) {
+        super(x, y, "snake");
+        this.stalkSpeed = ENEMY_CFG.stalkSpeed * 0.8;
+        this.chargeTriggerDistance = 150;
+        this.maintainDistance = 100;
+        this.windupDuration = ENEMY_CFG.windupDuration * 1.2;
+      }
+      updateStalkState(dt, playerDistance, toPlayerDir) {
+        if (playerDistance < this.maintainDistance) {
+          this.vx = -toPlayerDir.x * this.stalkSpeed;
+          this.vy = -toPlayerDir.y * this.stalkSpeed;
+        } else if (playerDistance > this.maintainDistance + 20) {
+          this.vx = toPlayerDir.x * this.stalkSpeed;
+          this.vy = toPlayerDir.y * this.stalkSpeed;
+        } else {
+          this.vx = 0;
+          this.vy = 0;
+        }
+        this.rollAngle = 0;
+        
+        if (playerDistance <= this.chargeTriggerDistance && this.postAttackCooldownTimer <= 0) {
+          this.state = "windup";
+          this.windupTimer = this.windupDuration;
+          this.chargeDirection = toPlayerDir;
+          if (Vec2.length(this.chargeDirection) <= EPSILON) {
+            this.chargeDirection = { x: 0, y: 1 };
+          }
+          this.vx = 0;
+          this.vy = 0;
+        }
+      }
+      updateChargeState(dt, game) {
+        if (this.state === "charge") {
+          const px = this.x + this.chargeDirection.x * 20;
+          const py = this.y + this.chargeDirection.y * 20;
+          game.projectiles.push(new Projectile(px, py, this.chargeDirection.x * PROJECTILE_CFG.speed, this.chargeDirection.y * PROJECTILE_CFG.speed));
+          this.state = "recover";
+          this.recoverTimer = this.recoverDuration;
+          this.postAttackCooldownTimer = this.postAttackCooldownDuration;
+        }
+      }
+    }
+
+    class SpiderEnemy extends BaseEnemy {
+      constructor(x, y) {
+        super(x, y, "spider");
+        this.healthQuarters = 2;
+        this.isBursting = Math.random() < 0.5;
+        this.burstTimer = Math.random() * 0.3;
+        this.burstOnDuration = 0.2 + Math.random() * 0.2;
+        this.burstOffDuration = 0.4 + Math.random() * 0.4;
+        this.chargeTriggerDistance = 60;
+        this.windupDuration = 0.42;
+        this.chargeDuration = 0.15;
+        this.chargeSpeed = ENEMY_CFG.chargeSpeed * 1.5;
+        this.recoverDuration = 0.5;
+      }
+      updateStalkState(dt, playerDistance, toPlayerDir) {
+        this.burstTimer -= dt;
+        if (this.burstTimer <= 0) {
+          this.isBursting = !this.isBursting;
+          this.burstTimer = this.isBursting ? this.burstOnDuration : this.burstOffDuration;
+        }
+        
+        if (this.isBursting) {
+          this.vx = toPlayerDir.x * this.stalkSpeed * 3;
+          this.vy = toPlayerDir.y * this.stalkSpeed * 3;
+        } else {
+          this.vx = 0;
+          this.vy = 0;
+        }
+        this.rollAngle = 0;
+        
+        if (playerDistance <= this.chargeTriggerDistance && this.postAttackCooldownTimer <= 0) {
+          this.state = "windup";
+          this.windupTimer = this.windupDuration;
+          this.chargeDirection = toPlayerDir;
+          if (Vec2.length(this.chargeDirection) <= EPSILON) {
+            this.chargeDirection = { x: 0, y: 1 };
+          }
+          this.vx = 0;
+          this.vy = 0;
+          this.isBursting = false;
+          this.burstTimer = 0;
+        }
+      }
+    }
+
+    class BoarEnemy extends BaseEnemy {
+      constructor(x, y) {
+        super(x, y, "boar");
+        this.width = ENEMY_CFG.width * 1.5;
+        this.height = ENEMY_CFG.height * 1.5;
+        this.hitRadius = ENEMY_CFG.hitRadius * 1.5;
+        this.maxHealthQuarters = 8;
+        this.healthQuarters = this.maxHealthQuarters;
+        this.stalkSpeed = ENEMY_CFG.stalkSpeed * 0.6;
+        this.chargeTriggerDistance = 180;
+        this.windupDuration = 1;
+        this.chargeDuration = 0.8;
+        this.chargeSpeed = ENEMY_CFG.chargeSpeed * 1.1;
+        this.recoverDuration = 0.8;
+        this.chargeSpinAmount = 0;
+      }
+    }
+
+    class Projectile extends Entity {
+      constructor(x, y, vx, vy) {
+        super(x, y, PROJECTILE_CFG.radius * 2, PROJECTILE_CFG.radius * 2);
+        this.vx = vx;
+        this.vy = vy;
+        this.alive = true;
+      }
+      update(dt, game) {
+        if (!this.alive) return;
+        this.x += this.vx * dt;
+        this.y += this.vy * dt;
+        
+        this.trailSpawnTimer += dt;
+        while (this.trailSpawnTimer >= PROJECTILE_CFG.trailInterval) {
+          this.trailSpawnTimer -= PROJECTILE_CFG.trailInterval;
+          this.trail.push({
+            x: this.x,
+            y: this.y,
+            angle: 0,
+            age: 0,
+            life: PROJECTILE_CFG.trailLife,
+            alpha: PROJECTILE_CFG.trailAlpha
+          });
+          if (this.trail.length > PROJECTILE_CFG.maxTrailSamples) {
+            this.trail.shift();
+          }
+        }
+        this.ageTrail(dt);
+        
+        if (this.alive && game.player.health > 0 && game.player.iframeTimer <= 0) {
+          if (!game.player.action || game.player.action.type !== "dodge") {
+            const distSq = MathUtils.distanceSq(this.x, this.y, game.player.x, game.player.y);
+            const reach = (game.player.width + game.player.height) * 0.25 + PROJECTILE_CFG.radius;
+            if (distSq <= reach * reach) {
+              game.player.takeDamage(game);
+              this.alive = false;
+            }
+          }
+        }
+        
+        if (this.x < -50 || this.x > GAME_WIDTH + 50 || this.y < -50 || this.y > GAME_HEIGHT + 50) {
+          this.alive = false;
+        }
+      }
+      draw(ctx) {
+        if (!this.alive) return;
+        ctx.save();
+        for (let i = 0; i < this.trail.length; i += 1) {
+          const t = this.trail[i];
+          const alpha = (1 - t.age / t.life) * t.alpha;
+          ctx.globalAlpha = alpha;
+          ctx.fillStyle = "#8bc34a";
+          ctx.beginPath();
+          ctx.arc(t.x, t.y, PROJECTILE_CFG.radius, 0, TAU);
+          ctx.fill();
+        }
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = "#558b2f";
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, PROJECTILE_CFG.radius, 0, TAU);
+        ctx.fill();
+        ctx.restore();
+      }
+    }
+
+    class LevelManager {
+      constructor(game) {
+        this.game = game;
+        this.currentLevel = 0;
+        this.currentWave = 0;
+        this.waveTimer = 0;
+        this.active = false;
+        this.state = "playing"; // playing, completeDelay, waitingForInput
+        this.stateTimer = 0;
+        
+        this.levels = [
+          { svg: GRASS_SVG, waves: [] },
+          { 
+            svg: DIRT_SVG, 
+            waves: [
+              { delay: 2, enemies: ["rat", "bat"] },
+              { delay: 8, enemies: ["bat", "bat", "bat", "bat"] },
+              { delay: 14, enemies: ["bat", "bat", "bat", "rat", "rat"] }
+            ] 
+          },
+          { 
+            svg: SAND_SVG, 
+            waves: [
+              { delay: 2, enemies: ["snake", "rat"] },
+              { delay: 6, enemies: ["snake", "bat", "bat"] },
+              { delay: 7, enemies: ["snake", "snake", "rat", "bat"] }
+            ] 
+          },
+          { 
+            svg: STONE_SVG, 
+            waves: [
+              { delay: 2, enemies: ["spider", "bat"] },
+              { delay: 6, enemies: ["spider", "spider", "snake"] },
+              { delay: 7, enemies: ["spider", "spider", "spider", "rat", "rat"] }
+            ] 
+          },
+          { 
+            svg: LAVA_SVG, 
+            waves: [
+              { delay: 2, enemies: ["boar", "bat"] },
+              { delay: 8, enemies: ["boar", "spider", "snake"] },
+              { delay: 8, enemies: ["boar", "boar", "bat", "bat"] },
+              { delay: 10, enemies: ["boar", "boar", "spider", "snake", "snake"] }
+            ] 
+          }
+        ];
+      }
+      
+      start() {
+        this.active = true;
+        this.currentLevel = 1;
+        this.startLevel();
+      }
+      
+      startLevel() {
+        this.state = "playing";
+        this.currentWave = 0;
+        this.waveTimer = this.levels[this.currentLevel].waves[this.currentWave].delay;
+        this.game.setBackground(this.levels[this.currentLevel].svg);
+      }
+      
+      update(dt) {
+        if (!this.active) return;
+        
+        if (this.state === "playing") {
+          this.waveTimer -= dt;
+          if (this.waveTimer <= 0) {
+            this.spawnWave();
+            this.currentWave++;
+            if (this.currentWave < this.levels[this.currentLevel].waves.length) {
+              this.waveTimer = this.levels[this.currentLevel].waves[this.currentWave].delay;
+            } else {
+              this.waveTimer = Infinity; 
+            }
+          }
+          
+          if (this.currentWave >= this.levels[this.currentLevel].waves.length) {
+            const allDead = this.game.enemies.length > 0 && this.game.enemies.every(e => !e.alive);
+            if (allDead) {
+              this.state = "completeDelay";
+              this.stateTimer = 1.0;
+            }
+          } else {
+            const allDead = this.game.enemies.length > 0 && this.game.enemies.every(e => !e.alive);
+            if (allDead && this.waveTimer > 1.0) {
+              this.waveTimer = 1.0;
+            }
+          }
+        } else if (this.state === "completeDelay") {
+          this.stateTimer -= dt;
+          if (this.stateTimer <= 0) {
+            this.state = "waitingForInput";
+            this.game.input.down = false;
+            this.game.input.pendingSwipe = null;
+          }
+        } else if (this.state === "waitingForInput") {
+          if (this.game.input.down || this.game.input.pendingSwipe) {
+            this.game.input.down = false;
+            this.game.input.pendingSwipe = null;
+            
+            // Clear stains and particles
+            this.game.groundSplotches = [];
+            this.game.player.stains = [];
+            this.game.particles.particles = [];
+            this.game.rainbowParticles.particles = [];
+            this.game.flashRings = [];
+            this.game.projectiles = [];
+            this.game.enemies = [];
+            this.game.player.resetPosition();
+            
+            this.currentLevel++;
+            if (this.currentLevel < this.levels.length) {
+              this.startLevel();
+            } else {
+              this.active = false;
+            }
+          }
+        }
+      }
+      
+      spawnWave() {
+        const wave = this.levels[this.currentLevel].waves[this.currentWave];
+        wave.enemies.forEach(type => {
+          this.game.spawnEnemy(type);
+        });
       }
     }
 
@@ -1297,6 +1765,12 @@
           case "chainSpawns":
             this.handleChainSpawns(realDt);
             break;
+          case "completeDelay":
+            this.handleCompleteDelay(realDt);
+            break;
+          case "waitingForInput":
+            this.handleWaitingForInput(realDt);
+            break;
         }
       }
 
@@ -1410,11 +1884,42 @@
             this.chainSpawnTimer = this.chainSpawnDelay;
           }
         } else {
-          const allDead = this.game.enemies.every(e => !e.alive);
+          const allDead = this.game.enemies.length > 0 && this.game.enemies.every(e => !e.alive);
           if (allDead) {
-            this.active = false;
-            this.phase = "done";
+            this.setPhase("completeDelay");
           }
+        }
+      }
+
+      handleCompleteDelay(realDt) {
+        this.tutorialTimeScale = 1;
+        this.textAlpha = 0;
+        if (this.phaseTime >= 1.0) {
+          this.setPhase("waitingForInput");
+          this.game.input.down = false;
+          this.game.input.pendingSwipe = null;
+        }
+      }
+
+      handleWaitingForInput(realDt) {
+        this.tutorialTimeScale = 1;
+        this.textAlpha = 0;
+        if (this.game.input.down || this.game.input.pendingSwipe) {
+          this.game.input.down = false;
+          this.game.input.pendingSwipe = null;
+          
+          this.game.groundSplotches = [];
+          this.game.player.stains = [];
+          this.game.particles.particles = [];
+          this.game.rainbowParticles.particles = [];
+          this.game.flashRings = [];
+          this.game.projectiles = [];
+          this.game.enemies = [];
+          this.game.player.resetPosition();
+
+          this.active = false;
+          this.phase = "done";
+          this.game.levelManager.start();
         }
       }
 
@@ -1424,7 +1929,7 @@
 
       spawnEnemyFromRandomHorizontalSide() {
         const template = this.game.enemy;
-        const enemy = new TriangleEnemy(0, 0);
+        const enemy = new RatEnemy(0, 0);
         const fromLeft = Math.random() < 0.5;
         const spawnX = fromLeft ? -template.width : GAME_WIDTH + template.width;
         const spawnY = GAME_HEIGHT * (0.22 + Math.random() * 0.56);
@@ -1615,17 +2120,16 @@
         };
 
         this.bgImage = new Image();
-        this.bgImage.src = GRASS_SVG;
         this.bgPattern = null;
-        this.bgImage.onload = () => {
-          this.bgPattern = this.ctx.createPattern(this.bgImage, "repeat");
-        };
+        this.setBackground(GRASS_SVG);
 
         this.input = new InputSystem((event) => this.eventToWorld(event));
         this.input.bind(canvas);
         this.player = new Player();
-        this.enemy = new TriangleEnemy(GAME_WIDTH * 0.5, 180);
+        this.enemy = new RatEnemy(GAME_WIDTH * 0.5, 180);
         this.enemies = [this.enemy];
+        this.projectiles = [];
+        this.levelManager = new LevelManager(this);
         this.enemy.state = "charge";
         this.enemy.chargeDirection = { x: 0, y: 1 };
         this.enemy.chargeTimer = this.enemy.chargeDuration;
@@ -1660,6 +2164,30 @@
 
         window.addEventListener("resize", () => this.resize());
         this.resize();
+      }
+
+      setBackground(svgData) {
+        this.bgImage.onload = () => {
+          this.bgPattern = this.ctx.createPattern(this.bgImage, "repeat");
+        };
+        this.bgImage.src = svgData;
+      }
+
+      spawnEnemy(type) {
+        let enemy;
+        const fromLeft = Math.random() < 0.5;
+        const spawnX = fromLeft ? -50 : GAME_WIDTH + 50;
+        const spawnY = GAME_HEIGHT * (0.1 + Math.random() * 0.8);
+        
+        if (type === "rat") enemy = new RatEnemy(spawnX, spawnY);
+        else if (type === "bat") enemy = new BatEnemy(spawnX, spawnY);
+        else if (type === "snake") enemy = new SnakeEnemy(spawnX, spawnY);
+        else if (type === "spider") enemy = new SpiderEnemy(spawnX, spawnY);
+        else if (type === "boar") enemy = new BoarEnemy(spawnX, spawnY);
+        else enemy = new RatEnemy(spawnX, spawnY);
+        
+        enemy.entering = true;
+        this.enemies.push(enemy);
       }
 
       resize() {
@@ -1749,11 +2277,17 @@
         const nowSeconds = performance.now() * 0.001;
         this.player.update(dt, this.input, nowSeconds);
         for (let i = 0; i < this.enemies.length; i++) {
-          this.enemies[i].update(dt, this.player);
+          this.enemies[i].update(dt, this.player, this);
         }
         for (let i = 0; i < this.enemies.length; i++) {
           this.enemies[i].onPlayerContact(this.player, this);
           this.enemies[i].checkDamageToPlayer(this.player, this);
+        }
+        for (let i = this.projectiles.length - 1; i >= 0; i--) {
+          this.projectiles[i].update(dt, this);
+          if (!this.projectiles[i].alive) {
+            MathUtils.swapAndPop(this.projectiles, i);
+          }
         }
       }
 
@@ -1776,7 +2310,38 @@
         this.renderParticles(ctx);
         this.renderFlashRings(ctx);
         this.renderTutorial(ctx);
+        
+        if (this.levelManager.active && (this.levelManager.state === "completeDelay" || this.levelManager.state === "waitingForInput")) {
+          this.renderLevelComplete(ctx, `Level ${this.levelManager.currentLevel} Complete!`, this.levelManager.state === "waitingForInput");
+        } else if (this.tutorial && this.tutorial.active && (this.tutorial.phase === "completeDelay" || this.tutorial.phase === "waitingForInput")) {
+          this.renderLevelComplete(ctx, "Tutorial Complete!", this.tutorial.phase === "waitingForInput");
+        }
+        
         this.renderHealthBar(ctx);
+        ctx.restore();
+      }
+
+      renderLevelComplete(ctx, titleText, showTapPrompt) {
+        const textY = GAME_HEIGHT * 0.45;
+        const centerX = GAME_WIDTH * 0.5;
+        ctx.save();
+        ctx.fillStyle = "rgba(0,0,0,0.5)";
+        ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
+        ctx.font = "bold 36px Arial";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillStyle = "rgba(0,0,0,0.5)";
+        ctx.fillText(titleText, centerX + 2, textY + 2);
+        ctx.fillStyle = "#ffffff";
+        ctx.fillText(titleText, centerX, textY);
+        if (showTapPrompt) {
+          const blink = Math.sin(performance.now() * 0.005) > 0;
+          if (blink) {
+            ctx.font = "bold 24px Arial";
+            ctx.fillStyle = "#ffffff";
+            ctx.fillText("Tap to continue", centerX, textY + 60);
+          }
+        }
         ctx.restore();
       }
 
@@ -1817,6 +2382,9 @@
           this.enemies[i].draw(ctx, nowSeconds);
         }
         this.player.draw(ctx);
+        for (let i = 0; i < this.projectiles.length; i++) {
+          this.projectiles[i].draw(ctx);
+        }
       }
 
       renderParticles(ctx) {
@@ -1891,6 +2459,8 @@
         if (this.tutorial && this.tutorial.active) {
           this.tutorial.update(frameDt);
         }
+
+        this.levelManager.update(frameDt);
 
         if (this.timeSlowTimer > 0) {
           this.timeSlowTimer = Math.max(0, this.timeSlowTimer - frameDt);
