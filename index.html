@@ -161,6 +161,7 @@
 
     const INPUT_CFG = {
       minSwipeDistance: 14,
+      autoSwipeDistance: 125,
       chargeStartDelay: 0.1,
       chargeFillDuration: 0.2,
       chargeGraceThreshold: 0.75
@@ -421,6 +422,7 @@
         this.pendingSwipe = null;
 
         this.minSwipeDistance = INPUT_CFG.minSwipeDistance;
+        this.autoSwipeDistance = INPUT_CFG.autoSwipeDistance;
         this.chargeStartDelay = INPUT_CFG.chargeStartDelay;
         this.chargeFillDuration = INPUT_CFG.chargeFillDuration;
         this.fullChargeThreshold = this.chargeStartDelay + this.chargeFillDuration;
@@ -465,6 +467,17 @@
           return;
         }
         this.current = world;
+
+        // Allow committing a swipe without release once held far enough from start.
+        if (!this.pendingSwipe) {
+          const swipeVec = Vec2.sub(this.current, this.start);
+          const swipeDistance = Vec2.length(swipeVec);
+          if (swipeDistance >= this.autoSwipeDistance) {
+            this.queueSwipeFromPosition(this.current);
+            this.down = false;
+            this.activePointerId = null;
+          }
+        }
       }
 
       onPointerUp(event) {
@@ -474,23 +487,27 @@
 
         const world = this.getWorldPointer(event);
         const releasePos = world || this.current;
-        const holdDuration = this.holdGameDuration;
-        const swipeVec = Vec2.sub(releasePos, this.start);
-        const swipeDistance = Vec2.length(swipeVec);
-
-        if (swipeDistance >= this.minSwipeDistance) {
-          const chargeAtRelease = holdDuration < this.chargeStartDelay ? 0
-            : clamp((holdDuration - this.chargeStartDelay) / this.chargeFillDuration, 0, 1);
-          this.pendingSwipe = {
-            direction: Vec2.normalize(swipeVec),
-            distance: swipeDistance,
-            holdDuration,
-            fullyCharged: chargeAtRelease >= this.chargeGraceThreshold
-          };
-        }
+        this.queueSwipeFromPosition(releasePos);
 
         this.down = false;
         this.activePointerId = null;
+      }
+
+      queueSwipeFromPosition(position) {
+        const holdDuration = this.holdGameDuration;
+        const swipeVec = Vec2.sub(position, this.start);
+        const swipeDistance = Vec2.length(swipeVec);
+        if (swipeDistance < this.minSwipeDistance) {
+          return;
+        }
+        const chargeAtRelease = holdDuration < this.chargeStartDelay ? 0
+          : clamp((holdDuration - this.chargeStartDelay) / this.chargeFillDuration, 0, 1);
+        this.pendingSwipe = {
+          direction: Vec2.normalize(swipeVec),
+          distance: swipeDistance,
+          holdDuration,
+          fullyCharged: chargeAtRelease >= this.chargeGraceThreshold
+        };
       }
 
       advanceHold(dt) {
@@ -1388,7 +1405,7 @@
         super(x, y, "bat");
         this.stalkSpeed = ENEMY_CFG.stalkSpeed * 1.5;
         this.chargeTriggerDistance = ENEMY_CFG.chargeTriggerDistance * 1.2;
-        this.windupDuration = 0.42;
+        this.windupDuration = 0.44;
         this.chargeDuration = ENEMY_CFG.chargeDuration * 0.8;
         this.recoverDuration = ENEMY_CFG.recoverDuration * 0.5;
         this.postAttackCooldownDuration = ENEMY_CFG.postAttackCooldownDuration * 1.3;
@@ -1527,7 +1544,7 @@
         this.burstOnDuration = 0.2 + Math.random() * 0.2;
         this.burstOffDuration = 0.4 + Math.random() * 0.4;
         this.chargeTriggerDistance = 60;
-        this.windupDuration = 0.42;
+        this.windupDuration = 0.47;
         this.chargeDuration = 0.075;
         this.chargeSpeed = ENEMY_CFG.chargeSpeed * 1.05;
         this.recoverDuration = 0.5;
@@ -2250,12 +2267,10 @@
           } else {
             player.startMove("dodge", swipe.direction);
             this.tutorialTimeScale = 1;
-            if (!this.attackHintShown) {
-              this.attackHintShown = true;
-              this.textAlpha = 0;
-              this.fingerAnimTime = 0;
-              this.phaseTime = 0;
-            }
+            this.attackHintShown = true;
+            this.textAlpha = 0;
+            this.fingerAnimTime = 0;
+            this.phaseTime = 0;
           }
         }
       }
@@ -2271,7 +2286,8 @@
           return;
         }
         if (!player.action && this.phaseTime > TUTORIAL_CFG.freeFightDelay) {
-          this.setPhase(TUTORIAL_PHASES.FREE_FIGHT_FIRST_RAT);
+          this.attackHintShown = true;
+          this.setPhase(TUTORIAL_PHASES.WAIT_ATTACK);
         }
       }
 
@@ -2619,7 +2635,7 @@
         this.view = view;
       }
 
-      renderLevelComplete(titleText, showTapPrompt) {
+      renderLevelComplete(titleText, showTapPrompt, tapText) {
         const textY = GAME_HEIGHT * 0.45;
         const centerX = GAME_WIDTH * 0.5;
         this.ctx.save();
@@ -2637,7 +2653,7 @@
           if (blink) {
             this.ctx.font = "bold 24px Arial";
             this.ctx.fillStyle = "#ffffff";
-            this.ctx.fillText("Tap to continue", centerX, textY + 60);
+            this.ctx.fillText(tapText || "Tap to continue", centerX, textY + 60);
           }
         }
         this.ctx.restore();
@@ -2732,28 +2748,17 @@
         const hbY = GAME_HEIGHT - UI_CFG.healthBarBottomMargin;
         const hpFrac = this.game.player.health / this.game.player.maxHealth;
         const displayHpFrac = this.game.player.displayHealth / this.game.player.maxHealth;
-        this.ctx.save();
-        this.ctx.globalAlpha = 0.35;
-        this.ctx.fillStyle = "#000000";
-        this.ctx.fillRect(hbX - 1, hbY - 1, hbWidth + 2, hbHeight + 2);
-        this.ctx.restore();
-        
-        this.ctx.save();
-        this.ctx.globalAlpha = 1;
-        this.ctx.fillStyle = "#ffffff";
-        this.ctx.fillRect(hbX, hbY, hbWidth * displayHpFrac, hbHeight);
-        this.ctx.restore();
 
         this.ctx.save();
-        this.ctx.globalAlpha = 0.25;
-        this.ctx.fillStyle = "#440000";
-        this.ctx.fillRect(hbX, hbY, hbWidth, hbHeight);
+        this.ctx.fillStyle = "rgba(0, 0, 0, 0.6)";
+        this.ctx.fillRect(hbX - 1, hbY - 1, hbWidth + 2, hbHeight + 2);
+
+        this.ctx.fillStyle = "#ffffff";
+        this.ctx.fillRect(hbX, hbY, hbWidth * displayHpFrac, hbHeight);
+
+        this.ctx.fillStyle = "#ff2222";
+        this.ctx.fillRect(hbX, hbY, hbWidth * hpFrac, hbHeight);
         this.ctx.restore();
-        
-        if (hpFrac > 0) {
-          this.ctx.fillStyle = "#cc2222";
-          this.ctx.fillRect(hbX, hbY, hbWidth * hpFrac, hbHeight);
-        }
       }
 
       render() {
@@ -2782,6 +2787,11 @@
         }
         
         this.renderHealthBar();
+
+        if (this.game.deathState === "delay" || this.game.deathState === "waitingForInput") {
+          this.renderLevelComplete("Defeated", this.game.deathState === "waitingForInput", "Tap to restart");
+        }
+
         this.ctx.restore();
       }
     }
@@ -2807,17 +2817,10 @@
         this.input = new InputSystem((event) => this.eventToWorld(event));
         this.input.bind(canvas);
         this.player = new Player();
-        this.enemy = new RatEnemy(GAME_WIDTH * 0.5, 180);
-        this.enemies = [this.enemy];
         this.projectiles = [];
+        this.enemies = [];
         this.levelManager = new LevelManager(this);
-        this.enemy.state = ENEMY_STATES.CHARGE;
-        this.enemy.chargeDirection = { x: 0, y: 1 };
-        this.enemy.chargeTimer = this.enemy.chargeDuration;
-        this.enemy.chargeElapsed = 0;
-        this.enemy.baseChargeSpinAmount = ENEMY_CFG.chargeSpinAmount;
-        this.enemy.health = 1;
-        this.enemy.displayHealth = 1;
+        this.setupTutorialEnemy();
 
         this.lastTimestamp = 0;
         this.accumulator = 0;
@@ -2845,6 +2848,10 @@
 
         this.tutorial = new Tutorial(this);
 
+        this.deathState = null;
+        this.deathTimer = 0;
+        this.deathDelayDuration = 1.5;
+
         window.addEventListener("resize", () => this.resize());
         this.resize();
       }
@@ -2854,6 +2861,18 @@
           this.bgPattern = this.ctx.createPattern(this.bgImage, "repeat");
         };
         this.bgImage.src = svgData;
+      }
+
+      setupTutorialEnemy() {
+        this.enemy = new RatEnemy(GAME_WIDTH * 0.5, 180);
+        this.enemies = [this.enemy];
+        this.enemy.state = ENEMY_STATES.CHARGE;
+        this.enemy.chargeDirection = { x: 0, y: 1 };
+        this.enemy.chargeTimer = this.enemy.chargeDuration;
+        this.enemy.chargeElapsed = 0;
+        this.enemy.baseChargeSpinAmount = ENEMY_CFG.chargeSpinAmount;
+        this.enemy.health = 1;
+        this.enemy.displayHealth = 1;
       }
 
       clearLevelState() {
@@ -3010,6 +3029,42 @@
         let frameDt = (timestamp - this.lastTimestamp) / 1000;
         this.lastTimestamp = timestamp;
         frameDt = clamp(frameDt, 0, this.maxFrame);
+
+        if (this.deathState === "delay") {
+          this.deathTimer -= frameDt;
+          if (this.deathTimer <= 0) {
+            this.deathState = "waitingForInput";
+            this.input.down = false;
+            this.input.pendingSwipe = null;
+          }
+          this.update(this.fixedStep * this.timeScale);
+          this.render();
+          requestAnimationFrame(this.frame);
+          return;
+        } else if (this.deathState === "waitingForInput") {
+          if (this.input.down || this.input.pendingSwipe) {
+            this.input.down = false;
+            this.input.pendingSwipe = null;
+            this.deathState = null;
+            this.clearLevelState();
+            if (this.tutorial && this.tutorial.active) {
+              this.tutorial.active = false;
+              this.setBackground(LEVEL_BACKGROUNDS.GRASS);
+              this.setupTutorialEnemy();
+              this.tutorial = new Tutorial(this);
+            } else {
+              this.levelManager.startLevel();
+            }
+          }
+          this.render();
+          requestAnimationFrame(this.frame);
+          return;
+        }
+
+        if (this.player.health <= 0 && !this.deathState) {
+          this.deathState = "delay";
+          this.deathTimer = this.deathDelayDuration;
+        }
 
         if (this.tutorial && this.tutorial.active) {
           this.tutorial.update(frameDt);
