@@ -921,6 +921,7 @@
         this.entering = false;
         this.knockbackVX = 0;
         this.knockbackVY = 0;
+        this.knockbackMultiplier = 1;
 
         this.hitRadius = ENEMY_CFG.hitRadius;
 
@@ -1223,8 +1224,9 @@
         this.stunTimer = this.stunDuration;
         this.state = ENEMY_STATES.RECOVER;
         this.recoverTimer = this.recoverDuration;
-        this.knockbackVX += awayFromHit.x * ENEMY_CFG.knockbackImpulse;
-        this.knockbackVY += awayFromHit.y * ENEMY_CFG.knockbackImpulse;
+        const knockbackImpulse = ENEMY_CFG.knockbackImpulse * this.knockbackMultiplier;
+        this.knockbackVX += awayFromHit.x * knockbackImpulse;
+        this.knockbackVY += awayFromHit.y * knockbackImpulse;
       }
 
       spawnChargedHitEffects(game, hitX, hitY, awayFromHit) {
@@ -1584,11 +1586,43 @@
         this.stalkSpeed = ENEMY_CFG.stalkSpeed * 0.6;
         this.chargeTriggerDistance = 180;
         this.windupDuration = 1;
-        this.chargeDuration = 0.8;
+        this.chargeDuration = 1.6;
         this.chargeSpeed = ENEMY_CFG.chargeSpeed * 1.1;
         this.recoverDuration = 0.8;
         this.baseChargeSpinAmount = 0;
         this.shadowOffsetY = 4;
+        this.knockbackMultiplier = 0.5;
+      }
+      clampToPlayfield() {
+        if (this.state !== ENEMY_STATES.CHARGE || this.entering) {
+          super.clampToPlayfield();
+          return;
+        }
+
+        const halfW = this.width * 0.5;
+        const halfH = this.height * 0.5;
+        const minX = halfW;
+        const maxX = GAME_WIDTH - halfW;
+        const minY = halfH;
+        const maxY = GAME_HEIGHT - halfH;
+
+        if (this.x <= minX) {
+          this.x = minX;
+          this.chargeDirection.x = Math.abs(this.chargeDirection.x);
+        } else if (this.x >= maxX) {
+          this.x = maxX;
+          this.chargeDirection.x = -Math.abs(this.chargeDirection.x);
+        }
+
+        if (this.y <= minY) {
+          this.y = minY;
+          this.chargeDirection.y = Math.abs(this.chargeDirection.y);
+        } else if (this.y >= maxY) {
+          this.y = maxY;
+          this.chargeDirection.y = -Math.abs(this.chargeDirection.y);
+        }
+
+        this.y = clamp(this.y, minY, maxY);
       }
       applyChargedHit(player, awayFromHit) {
         const inWindup = this.state === ENEMY_STATES.WINDUP;
@@ -1890,16 +1924,15 @@
           if (this.game.input.down || this.game.input.pendingSwipe) {
             this.game.input.down = false;
             this.game.input.pendingSwipe = null;
-            
-            // Clear particles
-            this.game.clearLevelState();
-            
-            this.currentLevel++;
-            if (this.currentLevel < this.levels.length) {
-              this.startLevel();
-            } else {
-              this.active = false;
-            }
+            this.state = "transitioning";
+          }
+        } else if (this.state === "transitioning") {
+          this.game.clearLevelState();
+          this.currentLevel++;
+          if (this.currentLevel < this.levels.length) {
+            this.startLevel();
+          } else {
+            this.active = false;
           }
         }
       }
@@ -2087,6 +2120,7 @@
         this.fingerAnimTime = 0;
         this.active = true;
         this.attackDir = { x: 0, y: -1 };
+        this.attackHintShown = false;
         this.crawlScale = TUTORIAL_CFG.crawlScale;
         this.crawlDuration = TUTORIAL_CFG.crawlDuration;
         this.slowDropRate = TUTORIAL_CFG.slowDropRate;
@@ -2193,14 +2227,36 @@
       }
 
       handleWaitAttack(realDt, player, input) {
+        if (player.action) {
+          this.tutorialTimeScale = 1;
+          return;
+        }
         this.tutorialTimeScale = 0;
         this.textAlpha = Math.min(1, this.phaseTime * 3);
+
+        const targetEnemy = this.game.getClosestAliveEnemy(player) || this.game.enemy;
+        if (targetEnemy) {
+          const dir = Vec2.sub({ x: targetEnemy.x, y: targetEnemy.y }, { x: player.x, y: player.y });
+          this.attackDir = Vec2.length(dir) > 1e-5 ? Vec2.normalize(dir) : { x: 0, y: -1 };
+        }
+
         if (input.pendingSwipe) {
           const swipe = input.pendingSwipe;
           input.pendingSwipe = null;
-          player.startMove("charged", swipe.direction);
-          this.tutorialTimeScale = 1;
-          this.setPhase(TUTORIAL_PHASES.ATTACKING);
+          if (swipe.fullyCharged) {
+            player.startMove("charged", swipe.direction);
+            this.tutorialTimeScale = 1;
+            this.setPhase(TUTORIAL_PHASES.ATTACKING);
+          } else {
+            player.startMove("dodge", swipe.direction);
+            this.tutorialTimeScale = 1;
+            if (!this.attackHintShown) {
+              this.attackHintShown = true;
+              this.textAlpha = 0;
+              this.fingerAnimTime = 0;
+              this.phaseTime = 0;
+            }
+          }
         }
       }
 
@@ -2343,8 +2399,13 @@
           this.drawDimOverlay(ctx);
           ctx.save();
           ctx.globalAlpha = this.textAlpha;
-          this.drawText(ctx, "Then swipe to attack!", centerX, textY, 26);
-          this.drawSwipeIndicator(ctx, centerX, indicatorY, this.attackDir);
+          if (this.attackHintShown) {
+            this.drawText(ctx, "Hold then swipe to attack!", centerX, textY, 26);
+            this.drawHoldThenSwipeIndicator(ctx, centerX, indicatorY, this.attackDir);
+          } else {
+            this.drawText(ctx, "Then swipe to attack!", centerX, textY, 26);
+            this.drawSwipeIndicator(ctx, centerX, indicatorY, this.attackDir);
+          }
           ctx.restore();
         }
       }
@@ -2454,6 +2515,99 @@
           ctx.stroke();
           ctx.restore();
         }
+      }
+
+      drawHoldThenSwipeIndicator(ctx, x, y, dir) {
+        const cycleTime = 2.0;
+        const holdPortion = 0.4;
+        const swipePortion = 0.35;
+        const fadePortion = 0.25;
+        const t = (this.fingerAnimTime % cycleTime) / cycleTime;
+
+        const swipeLen = 35;
+        const startX = x - dir.x * swipeLen;
+        const startY = y - dir.y * swipeLen;
+        const endX = x + dir.x * swipeLen;
+        const endY = y + dir.y * swipeLen;
+
+        let fingerX, fingerY, fingerAlpha;
+
+        if (t < holdPortion) {
+          fingerX = startX;
+          fingerY = startY;
+          fingerAlpha = 1;
+
+          const pulseT = (t / holdPortion) % 1;
+          for (let i = 0; i < 2; i++) {
+            const ringT = (pulseT + i * 0.5) % 1;
+            const ringAlpha = (1 - ringT) * 0.45;
+            const ringRadius = 14 + ringT * 22;
+            ctx.save();
+            ctx.globalAlpha *= ringAlpha;
+            ctx.strokeStyle = "#ffffff";
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(fingerX, fingerY, ringRadius, 0, TAU);
+            ctx.stroke();
+            ctx.restore();
+          }
+        } else if (t < holdPortion + swipePortion) {
+          const swipeT = (t - holdPortion) / swipePortion;
+          const eased = easeOutCubic(swipeT);
+          fingerX = startX + (endX - startX) * eased;
+          fingerY = startY + (endY - startY) * eased;
+          fingerAlpha = 1;
+
+          ctx.save();
+          ctx.strokeStyle = "rgba(255,255,255,0.35)";
+          ctx.lineWidth = 2;
+          ctx.setLineDash([4, 4]);
+          ctx.beginPath();
+          ctx.moveTo(startX, startY);
+          ctx.lineTo(fingerX, fingerY);
+          ctx.stroke();
+          ctx.setLineDash([]);
+          ctx.restore();
+        } else {
+          fingerX = endX;
+          fingerY = endY;
+          fingerAlpha = Math.max(0, 1 - (t - holdPortion - swipePortion) / fadePortion);
+        }
+
+        ctx.save();
+        ctx.globalAlpha *= fingerAlpha;
+        ctx.fillStyle = "#ffffff";
+        ctx.beginPath();
+        ctx.arc(fingerX, fingerY, 14, 0, TAU);
+        ctx.fill();
+        ctx.fillStyle = "#999999";
+        ctx.beginPath();
+        ctx.arc(fingerX, fingerY, 6, 0, TAU);
+        ctx.fill();
+        ctx.restore();
+
+        const arrowAlpha = 0.4 + 0.3 * Math.sin(this.fingerAnimTime * 5);
+        ctx.save();
+        ctx.globalAlpha *= arrowAlpha;
+        ctx.strokeStyle = "#ffffff";
+        ctx.lineWidth = 2.5;
+        const angle = Math.atan2(dir.y, dir.x);
+        const tipX = x + dir.x * 28;
+        const tipY = y + dir.y * 28;
+        const baseX = x - dir.x * 12;
+        const baseY = y - dir.y * 12;
+        ctx.beginPath();
+        ctx.moveTo(baseX, baseY);
+        ctx.lineTo(tipX, tipY);
+        ctx.stroke();
+        const headLen = 9;
+        ctx.beginPath();
+        ctx.moveTo(tipX, tipY);
+        ctx.lineTo(tipX - Math.cos(angle - 0.45) * headLen, tipY - Math.sin(angle - 0.45) * headLen);
+        ctx.moveTo(tipX, tipY);
+        ctx.lineTo(tipX - Math.cos(angle + 0.45) * headLen, tipY - Math.sin(angle + 0.45) * headLen);
+        ctx.stroke();
+        ctx.restore();
       }
     }
 
@@ -2619,7 +2773,9 @@
         this.renderFlashRings();
         this.renderTutorial();
         
-        if (this.game.levelManager.active && (this.game.levelManager.state === "completeDelay" || this.game.levelManager.state === "waitingForInput")) {
+        if (this.game.levelManager.active && this.game.levelManager.state === "transitioning") {
+          // skip rendering old level on transition frame
+        } else if (this.game.levelManager.active && (this.game.levelManager.state === "completeDelay" || this.game.levelManager.state === "waitingForInput")) {
           this.renderLevelComplete(`Level ${this.game.levelManager.currentLevel} Complete!`, this.game.levelManager.state === "waitingForInput");
         } else if (this.game.tutorial && this.game.tutorial.active && (this.game.tutorial.phase === TUTORIAL_PHASES.COMPLETE_DELAY || this.game.tutorial.phase === TUTORIAL_PHASES.WAITING_FOR_INPUT)) {
           this.renderLevelComplete("Tutorial Complete!", this.game.tutorial.phase === TUTORIAL_PHASES.WAITING_FOR_INPUT);
