@@ -73,7 +73,7 @@
       <option value="1">Level 1 (Dirt)</option>
       <option value="2">Level 2 (Sand)</option>
       <option value="3">Level 3 (Stone)</option>
-      <option value="4">Level 4 (Lava)</option>
+      <option value="4">Level 4 (Swamp)</option>
     </select>
   </div>
   <canvas id="gameCanvas"></canvas>
@@ -119,14 +119,20 @@
       <rect x="0" y="69" width="40" height="31" fill="%239e9e9e" stroke="%23616161" stroke-width="2"/>
       <rect x="42" y="69" width="58" height="31" fill="%23bdbdbd" stroke="%23616161" stroke-width="2"/>
     </svg>`,
-      LAVA: `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">
-      <rect width="100" height="100" fill="%23212121"/>
-      <path d="M0,20 L20,30 L40,15 L60,40 L80,25 L100,45" stroke="%23e65100" stroke-width="4" fill="none"/>
-      <path d="M0,60 L25,50 L45,70 L70,55 L100,75" stroke="%23ef6c00" stroke-width="3" fill="none"/>
-      <path d="M30,70 L40,90 L60,80 L80,100" stroke="%23bf360c" stroke-width="5" fill="none"/>
-      <circle cx="20" cy="25" r="3" fill="%23ff9800"/>
-      <circle cx="80" cy="30" r="2" fill="%23ffb300"/>
-      <circle cx="50" cy="65" r="4" fill="%23ff9800"/>
+      SWAMP: `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">
+      <rect width="100" height="100" fill="%231b3320"/>
+      <path d="M10,20 Q20,30 40,20 Q50,10 60,25 T90,20" stroke="%232e4d2a" stroke-width="6" fill="none"/>
+      <path d="M5,60 Q30,50 50,65 T95,60" stroke="%23223820" stroke-width="8" fill="none"/>
+      <ellipse cx="70" cy="75" rx="15" ry="8" fill="%23243118"/>
+      <ellipse cx="25" cy="35" rx="10" ry="5" fill="%23243118"/>
+      <circle cx="75" cy="72" r="2" fill="%23435e30"/>
+      <circle cx="65" cy="78" r="1.5" fill="%23435e30"/>
+      <circle cx="22" cy="36" r="1.5" fill="%23435e30"/>
+      <circle cx="30" cy="33" r="1" fill="%23435e30"/>
+      <path d="M85,100 Q80,85 85,75" stroke="%23385723" stroke-width="2" fill="none"/>
+      <line x1="85" y1="80" x2="85" y2="72" stroke="%234e342e" stroke-width="3" stroke-linecap="round"/>
+      <path d="M15,100 Q20,80 15,65" stroke="%23385723" stroke-width="2" fill="none"/>
+      <line x1="15" y1="72" x2="15" y2="62" stroke="%234e342e" stroke-width="3" stroke-linecap="round"/>
     </svg>`
     };
 
@@ -291,7 +297,7 @@
       crawlDuration: 2.8,
       slowDropRate: 12,
       chainSpawnDelay: 0.2,
-      chainSpawnCount: 3,
+      chainSpawnCount: 2,
       waitHoldDelay: 0.2,
       freeFightDelay: 0.5
     };
@@ -1315,7 +1321,7 @@
         }
         ctx.restore();
 
-        const shadowY = ry + this.height * 0.35 - 3.5;
+        const shadowY = ry + this.height * 0.35 - 3.5 + (this.shadowOffsetY || 0);
         ctx.save();
         ctx.fillStyle = "rgba(0, 0, 0, 0.14)";
         ctx.beginPath();
@@ -1455,6 +1461,9 @@
         this.chargeTriggerDistance = 300;
         this.maintainDistance = 100;
         this.windupDuration = ENEMY_CFG.windupDuration * 1.2;
+        this.minFireCooldown = 1;
+        this.maxFireCooldown = 2.5;
+        this.shadowOffsetY = 10;
       }
       applyChargedHit(player, awayFromHit) {
         const inWindup = this.state === ENEMY_STATES.WINDUP;
@@ -1500,7 +1509,7 @@
           game.projectiles.push(new Projectile(px, py, this.chargeDirection.x * PROJECTILE_CFG.speed, this.chargeDirection.y * PROJECTILE_CFG.speed));
           this.state = ENEMY_STATES.RECOVER;
           this.recoverTimer = this.recoverDuration;
-          this.postAttackCooldownTimer = this.postAttackCooldownDuration;
+          this.postAttackCooldownTimer = this.minFireCooldown + Math.random() * (this.maxFireCooldown - this.minFireCooldown);
         }
       }
     }
@@ -1579,6 +1588,7 @@
         this.chargeSpeed = ENEMY_CFG.chargeSpeed * 1.1;
         this.recoverDuration = 0.8;
         this.baseChargeSpinAmount = 0;
+        this.shadowOffsetY = 4;
       }
       applyChargedHit(player, awayFromHit) {
         const inWindup = this.state === ENEMY_STATES.WINDUP;
@@ -1783,7 +1793,7 @@
           { 
             svg: LEVEL_BACKGROUNDS.DIRT, 
             waves: [
-              { delay: 2, enemies: ["rat", "bat"] },
+              { delay: 1, enemies: ["rat", "bat"] },
               { delay: 8, enemies: ["bat", "bat", "bat"] },
               { delay: 14, enemies: ["bat", "bat", "bat", "rat", "rat"] }
             ] 
@@ -1791,7 +1801,7 @@
           { 
             svg: LEVEL_BACKGROUNDS.SAND, 
             waves: [
-              { delay: 2, enemies: ["snake"] },
+              { delay: 1, enemies: ["snake"] },
               { delay: 6, enemies: ["snake", "snake", "rat"] },
               { delay: 20, enemies: ["snake", "rat", "rat", "rat", "bat"] },
               { delay: 26, enemies: ["snake", "snake", "rat", "rat", "bat", "bat"] }
@@ -1800,7 +1810,7 @@
           { 
             svg: LEVEL_BACKGROUNDS.STONE, 
             waves: [
-              { delay: 2, enemies: ["spider", "spider"] },
+              { delay: 1, enemies: ["spider", "spider"] },
               { delay: 8, enemies: ["spider", "spider", "spider", "snake"] },
               { delay: 16, enemies: ["spider", "spider", "spider", "spider", "bat", "bat"] },
               { delay: 20, enemies: ["spider", "spider", "spider", "spider"] },
@@ -1808,9 +1818,9 @@
             ] 
           },
           { 
-            svg: LEVEL_BACKGROUNDS.LAVA, 
+            svg: LEVEL_BACKGROUNDS.SWAMP, 
             waves: [
-              { delay: 2, enemies: ["spider", "spider", "bat", "bat"] },
+              { delay: 1, enemies: ["spider", "spider", "bat", "bat"] },
               { delay: 10, enemies: ["boar", "snake"] },
               { delay: 12, enemies: ["boar", "boar", "boar"] },
               { delay: 20, enemies: ["boar", "boar", "spider", "snake", "snake"] },
