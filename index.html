@@ -33,9 +33,49 @@
       touch-action: none;
       background: #6a6a6a;
     }
+    #devPanel {
+      position: absolute;
+      top: 20px;
+      left: 20px;
+      background: rgba(0, 0, 0, 0.8);
+      color: white;
+      padding: 15px;
+      border-radius: 8px;
+      z-index: 100;
+      font-family: Arial, sans-serif;
+    }
+
+    #devPanel h3 {
+      margin-top: 0;
+      margin-bottom: 10px;
+      font-size: 16px;
+    }
+
+    #devPanel select {
+      padding: 4px;
+      font-size: 14px;
+      background: #333;
+      color: white;
+      border: 1px solid #555;
+      border-radius: 4px;
+      margin-top: 5px;
+      display: block;
+      width: 100%;
+      cursor: pointer;
+    }
   </style>
 </head>
 <body>
+  <div id="devPanel">
+    <h3>Dev Settings</h3>
+    <label for="levelSelect">Jump to Level:</label>
+    <select id="levelSelect">
+      <option value="1">Level 1 (Dirt)</option>
+      <option value="2">Level 2 (Sand)</option>
+      <option value="3">Level 3 (Stone)</option>
+      <option value="4">Level 4 (Lava)</option>
+    </select>
+  </div>
   <canvas id="gameCanvas"></canvas>
   <script>
     "use strict";
@@ -183,6 +223,13 @@
       maxTrailSamples: 20
     };
 
+    const WEB_CFG = {
+      projectileSpeed: 150,
+      trapRadius: 52,
+      trapLifetime: 5,
+      trapFadeTime: 0.2
+    };
+
     const FX_CFG = {
       hitParticleCount: 12,
       hitParticleSpread: Math.PI * 0.8,
@@ -274,10 +321,12 @@
     const EMOJI_CANVASES = {
       rat: createEmojiCanvas("🐀", ENEMY_CFG.height),
       bat: createEmojiCanvas("🦇", ENEMY_CFG.height),
-      snake: createEmojiCanvas("🐍", ENEMY_CFG.height),
+      snake: createEmojiCanvas("🐍", ENEMY_CFG.height * 2),
       spider: createEmojiCanvas("🕷️", ENEMY_CFG.height),
       boar: createEmojiCanvas("🐗", ENEMY_CFG.height * 1.5),
-      player: createEmojiCanvas("⚔️", PLAYER_CFG.height * 0.5)
+      player: createEmojiCanvas("⚔️", PLAYER_CFG.height * 0.5),
+      drop: createEmojiCanvas("💧", PROJECTILE_CFG.radius * 3),
+      web: createEmojiCanvas("🕸️", WEB_CFG.trapRadius)
     };
 
     class MathUtils {
@@ -533,6 +582,7 @@
         this.iframeDuration = PLAYER_CFG.iframeDuration;
         this.iframeTimer = 0;
         this.hitFlashTimer = 0;
+        this.onWeb = false;
       }
 
       startMove(type, direction) {
@@ -541,7 +591,10 @@
 
         const isDodge = type === "dodge";
         const duration = isDodge ? PLAYER_CFG.dodgeDuration : PLAYER_CFG.chargedDuration;
-        const travel = isDodge ? PLAYER_CFG.dodgeTravel : PLAYER_CFG.chargedTravel;
+        let travel = isDodge ? PLAYER_CFG.dodgeTravel : PLAYER_CFG.chargedTravel;
+        if (this.onWeb) {
+          travel *= 0.5;
+        }
         const spins = isDodge ? PLAYER_CFG.dodgeSpin * horizontalSign : PLAYER_CFG.chargedSpin * horizontalSign;
         this.actionSerial += 1;
 
@@ -566,8 +619,9 @@
         game.triggerShake(PLAYER_CFG.shakeOnHit.intensity, PLAYER_CFG.shakeOnHit.duration);
       }
 
-      update(dt, input, nowSeconds) {
+      update(dt, input, nowSeconds, game) {
         this.updateStatusTimers(dt);
+        this.updateWebState(game);
         const holdDuration = input.getHoldDuration(nowSeconds);
         this.chargeVisible = input.down && holdDuration >= input.chargeStartDelay;
         this.chargeProgress = input.getChargeProgress(nowSeconds);
@@ -587,6 +641,19 @@
         }
       }
 
+      updateWebState(game) {
+        this.onWeb = false;
+        if (!game || !game.webs || game.webs.length === 0) {
+          return;
+        }
+        for (let i = 0; i < game.webs.length; i++) {
+          if (game.webs[i].contains(this.x, this.y)) {
+            this.onWeb = true;
+            return;
+          }
+        }
+      }
+
       resetPosition() {
         this.x = GAME_WIDTH * 0.5;
         this.y = GAME_HEIGHT * 0.5;
@@ -597,6 +664,7 @@
         this.spinAngle = 0;
         this.health = this.maxHealth;
         this.displayHealth = this.maxHealth;
+        this.onWeb = false;
       }
 
       consumeQueuedSwipe(input) {
@@ -819,7 +887,8 @@
         this.stunDuration = ENEMY_CFG.stunDuration;
         this.lastHitByActionId = null;
         this.rollAngle = 0;
-        this.chargeSpinAmount = ENEMY_CFG.chargeSpinAmount;
+        this.baseChargeSpinAmount = ENEMY_CFG.chargeSpinAmount;
+        this.chargeSpinAmount = 0;
         this.chargeElapsed = 0;
         
         this.flankDir = Math.random() < 0.5 ? 1 : -1;
@@ -962,7 +1031,7 @@
           this.chargeTimer = this.chargeDuration;
           this.chargeElapsed = 0;
           const spinSign = this.chargeDirection.x >= 0 ? 1 : -1;
-          this.chargeSpinAmount = ENEMY_CFG.chargeSpinAmount * spinSign;
+          this.chargeSpinAmount = this.baseChargeSpinAmount * spinSign;
         }
       }
 
@@ -1156,7 +1225,7 @@
       checkDamageToPlayer(player, game) {
         if (!this.alive || this.state !== "charge") return;
         if (player.iframeTimer > 0 || player.health <= 0) return;
-        if (player.action && player.action.type === "dodge") return;
+        if (player.action && (player.action.type === "dodge" || player.action.type === "charged")) return;
         if (!this.isOverlappingPlayer(player)) return;
         player.takeDamage(game);
       }
@@ -1257,13 +1326,42 @@
         this.windupDuration = 0.42;
         this.chargeDuration = ENEMY_CFG.chargeDuration * 0.8;
         this.recoverDuration = ENEMY_CFG.recoverDuration * 0.5;
-        this.postAttackCooldownDuration = ENEMY_CFG.postAttackCooldownDuration * 0.5;
+        this.postAttackCooldownDuration = ENEMY_CFG.postAttackCooldownDuration * 1.3;
         this.chargeSpeed = ENEMY_CFG.chargeSpeed * 1.2;
         this.maxHealth = 2;
         this.health = this.maxHealth;
         this.displayHealth = this.maxHealth;
         this.sineTimer = Math.random() * TAU;
         this.sineFreq = 3 + Math.random() * 3;
+        this.swoopCount = 0;
+      }
+      applyChargedHit(player, awayFromHit) {
+        const inWindup = this.state === ENEMY_STATES.WINDUP;
+        const last75Percent = this.windupTimer <= this.windupDuration * 0.75;
+        
+        if (inWindup && last75Percent) {
+          this.health = Math.max(0, this.health - 1);
+          this.lastHitByActionId = player.action.id;
+          this.hitFlashTimer = ENEMY_CFG.hitFlashDuration;
+          this.hitCooldown = ENEMY_CFG.hitCooldownDuration;
+        } else {
+          super.applyChargedHit(player, awayFromHit);
+        }
+      }
+      updateChargeState(dt, game) {
+        super.updateChargeState(dt, game);
+        if (this.state === ENEMY_STATES.RECOVER) {
+          if (this.swoopCount === 0) {
+            this.swoopCount = 1;
+            this.state = ENEMY_STATES.WINDUP;
+            this.windupTimer = this.windupDuration;
+            const toPlayer = Vec2.sub({ x: game.player.x, y: game.player.y }, { x: this.x, y: this.y });
+            const dist = Vec2.length(toPlayer);
+            this.chargeDirection = dist > EPSILON ? Vec2.mul(toPlayer, 1 / dist) : { x: 0, y: 1 };
+          } else {
+            this.swoopCount = 0;
+          }
+        }
       }
       updateStalkState(dt, playerDistance, toPlayerDir) {
         this.sineTimer += dt;
@@ -1290,13 +1388,29 @@
     class SnakeEnemy extends BaseEnemy {
       constructor(x, y) {
         super(x, y, "snake");
-        this.maxHealth = 4;
+        this.width = ENEMY_CFG.width * 2;
+        this.height = ENEMY_CFG.height * 2;
+        this.hitRadius = ENEMY_CFG.hitRadius * 2;
+        this.maxHealth = 6;
         this.health = this.maxHealth;
         this.displayHealth = this.maxHealth;
         this.stalkSpeed = ENEMY_CFG.stalkSpeed * 0.8;
         this.chargeTriggerDistance = 150;
         this.maintainDistance = 100;
         this.windupDuration = ENEMY_CFG.windupDuration * 1.2;
+      }
+      applyChargedHit(player, awayFromHit) {
+        const inWindup = this.state === ENEMY_STATES.WINDUP;
+        const last75Percent = this.windupTimer <= this.windupDuration * 0.75;
+        
+        if (inWindup && last75Percent) {
+          this.health = Math.max(0, this.health - 1);
+          this.lastHitByActionId = player.action.id;
+          this.hitFlashTimer = ENEMY_CFG.hitFlashDuration;
+          this.hitCooldown = ENEMY_CFG.hitCooldownDuration;
+        } else {
+          super.applyChargedHit(player, awayFromHit);
+        }
       }
       updateStalkState(dt, playerDistance, toPlayerDir) {
         if (playerDistance < this.maintainDistance) {
@@ -1346,15 +1460,26 @@
         this.burstOffDuration = 0.4 + Math.random() * 0.4;
         this.chargeTriggerDistance = 60;
         this.windupDuration = 0.42;
-        this.chargeDuration = 0.15;
-        this.chargeSpeed = ENEMY_CFG.chargeSpeed * 1.5;
+        this.chargeDuration = 0.075;
+        this.chargeSpeed = ENEMY_CFG.chargeSpeed * 1.05;
         this.recoverDuration = 0.5;
+        this.baseChargeSpinAmount = TAU;
       }
-      updateStalkState(dt, playerDistance, toPlayerDir) {
+      updateStalkState(dt, playerDistance, toPlayerDir, game) {
         this.burstTimer -= dt;
         if (this.burstTimer <= 0) {
           this.isBursting = !this.isBursting;
-          this.burstTimer = this.isBursting ? this.burstOnDuration : this.burstOffDuration;
+          if (this.isBursting && playerDistance > this.chargeTriggerDistance && Math.random() < 0.2) {
+            this.isBursting = false;
+            this.burstTimer = this.burstOffDuration;
+            this.vx = 0;
+            this.vy = 0;
+            if (game) {
+              game.projectiles.push(new WebProjectile(this.x, this.y, game.player.x, game.player.y));
+            }
+          } else {
+            this.burstTimer = this.isBursting ? this.burstOnDuration : this.burstOffDuration;
+          }
         }
         
         if (this.isBursting) {
@@ -1396,7 +1521,20 @@
         this.chargeDuration = 0.8;
         this.chargeSpeed = ENEMY_CFG.chargeSpeed * 1.1;
         this.recoverDuration = 0.8;
-        this.chargeSpinAmount = 0;
+        this.baseChargeSpinAmount = 0;
+      }
+      applyChargedHit(player, awayFromHit) {
+        const inWindup = this.state === ENEMY_STATES.WINDUP;
+        const last75Percent = this.windupTimer <= this.windupDuration * 0.75;
+        
+        if (inWindup && last75Percent) {
+          this.health = Math.max(0, this.health - 1);
+          this.lastHitByActionId = player.action.id;
+          this.hitFlashTimer = ENEMY_CFG.hitFlashDuration;
+          this.hitCooldown = ENEMY_CFG.hitCooldownDuration;
+        } else {
+          super.applyChargedHit(player, awayFromHit);
+        }
       }
     }
 
@@ -1412,13 +1550,15 @@
         this.x += this.vx * dt;
         this.y += this.vy * dt;
         
+        const angle = Math.atan2(this.vy, this.vx) - Math.PI / 2;
+        
         this.spawnTrailSamples(
           dt,
           PROJECTILE_CFG.trailInterval,
           PROJECTILE_CFG.trailLife,
           PROJECTILE_CFG.trailAlpha,
           PROJECTILE_CFG.maxTrailSamples,
-          { x: this.x, y: this.y, angle: 0 }
+          { x: this.x, y: this.y, angle: angle }
         );
         this.ageTrail(dt);
         
@@ -1444,16 +1584,129 @@
           const t = this.trail[i];
           const alpha = (1 - t.age / t.life) * t.alpha;
           ctx.globalAlpha = alpha;
-          ctx.fillStyle = "#8bc34a";
+          ctx.translate(t.x, t.y);
+          ctx.rotate(t.angle);
+          ctx.drawImage(EMOJI_CANVASES.drop, -EMOJI_CANVASES.drop.width / 2, -EMOJI_CANVASES.drop.height / 2);
+          ctx.rotate(-t.angle);
+          ctx.translate(-t.x, -t.y);
+        }
+        
+        const currentAngle = Math.atan2(this.vy, this.vx) - Math.PI / 2;
+        ctx.globalAlpha = 1;
+        ctx.translate(this.x, this.y);
+        ctx.rotate(currentAngle);
+        ctx.drawImage(EMOJI_CANVASES.drop, -EMOJI_CANVASES.drop.width / 2, -EMOJI_CANVASES.drop.height / 2);
+        ctx.restore();
+      }
+    }
+
+    class WebProjectile extends Projectile {
+      constructor(x, y, targetX, targetY) {
+        super(x, y, 0, 0);
+        this.startX = x;
+        this.startY = y;
+        this.targetX = targetX;
+        this.targetY = targetY;
+        this.speed = WEB_CFG.projectileSpeed;
+        this.arriveRadius = PROJECTILE_CFG.radius;
+        this.initialDistance = Math.sqrt(MathUtils.distanceSq(x, y, targetX, targetY));
+        this.z = 0;
+      }
+
+      update(dt, game) {
+        if (!this.alive) return;
+
+        const toTarget = { x: this.targetX - this.x, y: this.targetY - this.y };
+        const distance = Vec2.length(toTarget);
+        if (distance <= this.arriveRadius) {
+          this.land(game);
+          return;
+        }
+
+        const dir = distance > EPSILON ? Vec2.mul(toTarget, 1 / distance) : { x: 0, y: 0 };
+        this.vx = dir.x * this.speed;
+        this.vy = dir.y * this.speed;
+        this.x += this.vx * dt;
+        this.y += this.vy * dt;
+
+        const currentDist = Math.sqrt(MathUtils.distanceSq(this.startX, this.startY, this.x, this.y));
+        const progress = this.initialDistance > 0 ? Math.min(1, currentDist / this.initialDistance) : 1;
+        
+        const maxHeight = Math.min(150, this.initialDistance * 0.4);
+        this.z = 4 * maxHeight * progress * (1 - progress);
+
+        this.spawnTrailSamples(
+          dt,
+          PROJECTILE_CFG.trailInterval,
+          PROJECTILE_CFG.trailLife,
+          PROJECTILE_CFG.trailAlpha,
+          PROJECTILE_CFG.maxTrailSamples,
+          { x: this.x, y: this.y - this.z, angle: 0 }
+        );
+        this.ageTrail(dt);
+
+        const remainingDist = Math.sqrt(MathUtils.distanceSq(this.x, this.y, this.targetX, this.targetY));
+        if (remainingDist <= this.arriveRadius) {
+          this.land(game);
+        }
+      }
+
+      land(game) {
+        this.alive = false;
+        game.webs.push(new WebTrap(this.targetX, this.targetY));
+      }
+
+      draw(ctx) {
+        if (!this.alive) return;
+        ctx.save();
+        for (let i = 0; i < this.trail.length; i += 1) {
+          const t = this.trail[i];
+          const alpha = (1 - t.age / t.life) * t.alpha;
+          ctx.globalAlpha = alpha;
+          ctx.fillStyle = "#ffffff";
           ctx.beginPath();
-          ctx.arc(t.x, t.y, PROJECTILE_CFG.radius, 0, TAU);
+          ctx.arc(t.x, t.y, PROJECTILE_CFG.radius * 0.9, 0, TAU);
           ctx.fill();
         }
         ctx.globalAlpha = 1;
-        ctx.fillStyle = "#558b2f";
+        ctx.fillStyle = "#ffffff";
         ctx.beginPath();
-        ctx.arc(this.x, this.y, PROJECTILE_CFG.radius, 0, TAU);
+        ctx.arc(this.x, this.y - this.z, PROJECTILE_CFG.radius, 0, TAU);
         ctx.fill();
+        ctx.restore();
+      }
+    }
+
+    class WebTrap {
+      constructor(x, y) {
+        this.x = x;
+        this.y = y;
+        this.radius = WEB_CFG.trapRadius;
+        this.life = WEB_CFG.trapLifetime;
+        this.age = 0;
+      }
+
+      update(dt) {
+        this.age += dt;
+      }
+
+      get expired() {
+        return this.age >= this.life + WEB_CFG.trapFadeTime;
+      }
+
+      contains(x, y) {
+        return MathUtils.distanceSq(this.x, this.y, x, y) <= this.radius * this.radius;
+      }
+
+      draw(ctx) {
+        let alpha = 1;
+        if (this.age > this.life) {
+          alpha = clamp(1 - (this.age - this.life) / WEB_CFG.trapFadeTime, 0, 1);
+        }
+        ctx.save();
+        ctx.globalAlpha = alpha;
+        ctx.translate(this.x, this.y);
+        ctx.drawImage(EMOJI_CANVASES.web, -EMOJI_CANVASES.web.width / 2, -EMOJI_CANVASES.web.height / 2);
         ctx.restore();
       }
     }
@@ -1482,7 +1735,7 @@
             svg: LEVEL_BACKGROUNDS.SAND, 
             waves: [
               { delay: 2, enemies: ["snake", "rat", "bat"] },
-              { delay: 7, enemies: ["snake", "snake", "snake", "rat", "rat"] },
+              { delay: 7, enemies: ["snake", "snake", "rat", "rat"] },
               { delay: 14, enemies: ["snake", "rat", "rat", "rat", "rat", "bat"] },
               { delay: 16, enemies: ["snake", "snake", "rat", "rat", "bat", "bat", "bat"] }
             ] 
@@ -1521,6 +1774,11 @@
         this.currentWave = 0;
         this.waveTimer = this.levels[this.currentLevel].waves[this.currentWave].delay;
         this.game.setBackground(this.levels[this.currentLevel].svg);
+        
+        const select = document.getElementById("levelSelect");
+        if (select && select.value !== this.currentLevel.toString()) {
+          select.value = this.currentLevel;
+        }
       }
       
       update(dt) {
@@ -2141,7 +2399,7 @@
         const centerX = GAME_WIDTH * 0.5;
         this.ctx.save();
         this.ctx.fillStyle = "rgba(0,0,0,0.5)";
-        this.ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
+        this.ctx.fillRect(-GAME_WIDTH, -GAME_HEIGHT, GAME_WIDTH * 3, GAME_HEIGHT * 3);
         this.ctx.font = "bold 36px Arial";
         this.ctx.textAlign = "center";
         this.ctx.textBaseline = "middle";
@@ -2173,10 +2431,6 @@
           this.ctx.fillStyle = "#7cb342";
         }
         this.ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
-
-        this.ctx.strokeStyle = "#558b2f";
-        this.ctx.lineWidth = 4;
-        this.ctx.strokeRect(2, 2, GAME_WIDTH - 4, GAME_HEIGHT - 4);
       }
 
       renderGroundSplotches() {
@@ -2189,6 +2443,12 @@
           this.ctx.arc(s.x, s.y, s.radius, 0, TAU);
           this.ctx.fill();
           this.ctx.restore();
+        }
+      }
+
+      renderWebs() {
+        for (let i = 0; i < this.game.webs.length; i++) {
+          this.game.webs[i].draw(this.ctx);
         }
       }
 
@@ -2281,6 +2541,7 @@
 
         this.renderPlayfield();
         this.renderGroundSplotches();
+        this.renderWebs();
         const nowSeconds = performance.now() * 0.001;
         this.renderEntities(nowSeconds);
         this.renderParticles();
@@ -2327,7 +2588,7 @@
         this.enemy.chargeDirection = { x: 0, y: 1 };
         this.enemy.chargeTimer = this.enemy.chargeDuration;
         this.enemy.chargeElapsed = 0;
-        this.enemy.chargeSpinAmount = ENEMY_CFG.chargeSpinAmount;
+        this.enemy.baseChargeSpinAmount = ENEMY_CFG.chargeSpinAmount;
         this.enemy.health = 1;
         this.enemy.displayHealth = 1;
 
@@ -2353,6 +2614,7 @@
         this.rainbowParticles = new RainbowDeathParticleSystem();
         this.flashRings = [];
         this.groundSplotches = [];
+        this.webs = [];
 
         this.tutorial = new Tutorial(this);
 
@@ -2369,6 +2631,7 @@
 
       clearLevelState() {
         this.groundSplotches = [];
+        this.webs = [];
         this.particles.particles = [];
         this.rainbowParticles.particles = [];
         this.flashRings = [];
@@ -2482,7 +2745,14 @@
         }
 
         const nowSeconds = performance.now() * 0.001;
-        this.player.update(dt, this.input, nowSeconds);
+        for (let i = this.webs.length - 1; i >= 0; i--) {
+          this.webs[i].update(dt);
+          if (this.webs[i].expired) {
+            MathUtils.swapAndPop(this.webs, i);
+          }
+        }
+
+        this.player.update(dt, this.input, nowSeconds, this);
         for (let i = 0; i < this.enemies.length; i++) {
           this.enemies[i].update(dt, this.player, this);
         }
@@ -2554,6 +2824,18 @@
 
     const game = new Game(document.getElementById("gameCanvas"));
     game.start();
+
+    document.getElementById("levelSelect").addEventListener("change", (e) => {
+      const levelIdx = parseInt(e.target.value, 10);
+      if (game.tutorial) {
+        game.tutorial.active = false;
+      }
+      game.clearLevelState();
+      game.levelManager.active = true;
+      game.levelManager.currentLevel = levelIdx;
+      game.levelManager.startLevel();
+      e.target.blur();
+    });
   </script>
 </body>
 </html>
