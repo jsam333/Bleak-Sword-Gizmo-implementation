@@ -260,8 +260,8 @@
       deathParticleMaxSize: 10,
       deathParticleColors: ["#d62222", "#ff4444", "#ff8800", "#ffaa22"],
       deathParticleDrag: 3,
-      rainbowMinCount: 150,
-      rainbowExtraCount: 51
+      rainbowMinCount: 75,
+      rainbowExtraCount: 25
     };
 
     const UI_CFG = {
@@ -591,10 +591,7 @@
 
         const isDodge = type === "dodge";
         const duration = isDodge ? PLAYER_CFG.dodgeDuration : PLAYER_CFG.chargedDuration;
-        let travel = isDodge ? PLAYER_CFG.dodgeTravel : PLAYER_CFG.chargedTravel;
-        if (this.onWeb) {
-          travel *= 0.5;
-        }
+        const travel = isDodge ? PLAYER_CFG.dodgeTravel : PLAYER_CFG.chargedTravel;
         const spins = isDodge ? PLAYER_CFG.dodgeSpin * horizontalSign : PLAYER_CFG.chargedSpin * horizontalSign;
         this.actionSerial += 1;
 
@@ -626,7 +623,7 @@
         this.chargeVisible = input.down && holdDuration >= input.chargeStartDelay;
         this.chargeProgress = input.getChargeProgress(nowSeconds);
         this.consumeQueuedSwipe(input);
-        this.updateAction(dt);
+        this.updateAction(dt, game);
         this.applyPostActionDamping(dt);
         this.applyMovement(dt);
         this.clampToPlayfield();
@@ -654,6 +651,39 @@
         }
       }
 
+      getWebMoveMultiplier(game, x = this.x, y = this.y) {
+        if (!game || !game.webs || game.webs.length === 0) {
+          return 1;
+        }
+        for (let i = 0; i < game.webs.length; i += 1) {
+          if (game.webs[i].contains(x, y)) {
+            return 0.5;
+          }
+        }
+        return 1;
+      }
+
+      getWebAdjustedTravel(game, startX, startY, direction, baseDistance) {
+        if (baseDistance <= 0) {
+          return { distance: 0, endX: startX, endY: startY };
+        }
+        const stepCount = Math.max(1, Math.ceil(baseDistance / 4));
+        const baseStepDistance = baseDistance / stepCount;
+        let x = startX;
+        let y = startY;
+        let distance = 0;
+
+        for (let i = 0; i < stepCount; i += 1) {
+          const webMoveMultiplier = this.getWebMoveMultiplier(game, x, y);
+          const stepDistance = baseStepDistance * webMoveMultiplier;
+          x += direction.x * stepDistance;
+          y += direction.y * stepDistance;
+          distance += stepDistance;
+        }
+
+        return { distance, endX: x, endY: y };
+      }
+
       resetPosition() {
         this.x = GAME_WIDTH * 0.5;
         this.y = GAME_HEIGHT * 0.5;
@@ -675,21 +705,33 @@
         }
       }
 
-      updateAction(dt) {
+      updateAction(dt, game) {
         if (this.action) {
           const frameStartX = this.x;
           const frameStartY = this.y;
           const frameStartAngle = this.spinAngle;
+          let webCheckX = this.x;
+          let webCheckY = this.y;
           this.action.elapsed += dt;
           const t = clamp(this.action.elapsed / this.action.duration, 0, 1);
           if (this.action.type === "charged") {
             const travelT = easeOutCubic(t);
-            const deltaTravel = (travelT - this.action.prevTravelT) * this.action.travel;
+            const baseDeltaTravel = (travelT - this.action.prevTravelT) * this.action.travel;
             this.action.prevTravelT = travelT;
+            const webAdjustedTravel = this.getWebAdjustedTravel(
+              game,
+              this.x,
+              this.y,
+              this.action.direction,
+              baseDeltaTravel
+            );
+            const deltaTravel = webAdjustedTravel.distance;
             const moveX = this.action.direction.x * deltaTravel;
             const moveY = this.action.direction.y * deltaTravel;
-            this.x += moveX;
-            this.y += moveY;
+            this.x = webAdjustedTravel.endX;
+            this.y = webAdjustedTravel.endY;
+            webCheckX = this.x;
+            webCheckY = this.y;
             if (dt > EPSILON) {
               this.vx = moveX / dt;
               this.vy = moveY / dt;
@@ -698,10 +740,25 @@
               this.vy = 0;
             }
           } else {
-            const speed = this.action.travel / this.action.duration;
-            this.vx = this.action.direction.x * speed;
-            this.vy = this.action.direction.y * speed;
+            const baseDistance = (this.action.travel / this.action.duration) * dt;
+            const webAdjustedTravel = this.getWebAdjustedTravel(
+              game,
+              this.x,
+              this.y,
+              this.action.direction,
+              baseDistance
+            );
+            if (dt > EPSILON) {
+              this.vx = this.action.direction.x * (webAdjustedTravel.distance / dt);
+              this.vy = this.action.direction.y * (webAdjustedTravel.distance / dt);
+            } else {
+              this.vx = 0;
+              this.vy = 0;
+            }
+            webCheckX = webAdjustedTravel.endX;
+            webCheckY = webAdjustedTravel.endY;
           }
+          this.onWeb = this.getWebMoveMultiplier(game, webCheckX, webCheckY) < 1;
           this.spinAngle = this.action.startAngle + this.action.spins * easeOutCubic(t);
 
           const trailInterval = this.action.type === "charged"
@@ -1395,7 +1452,7 @@
         this.health = this.maxHealth;
         this.displayHealth = this.maxHealth;
         this.stalkSpeed = ENEMY_CFG.stalkSpeed * 0.8;
-        this.chargeTriggerDistance = 150;
+        this.chargeTriggerDistance = 300;
         this.maintainDistance = 100;
         this.windupDuration = ENEMY_CFG.windupDuration * 1.2;
       }
@@ -1734,30 +1791,34 @@
           { 
             svg: LEVEL_BACKGROUNDS.SAND, 
             waves: [
-              { delay: 2, enemies: ["snake", "rat", "bat"] },
-              { delay: 7, enemies: ["snake", "snake", "rat", "rat"] },
-              { delay: 14, enemies: ["snake", "rat", "rat", "rat", "rat", "bat"] },
-              { delay: 16, enemies: ["snake", "snake", "rat", "rat", "bat", "bat", "bat"] }
+              { delay: 2, enemies: ["snake"] },
+              { delay: 6, enemies: ["snake", "snake", "rat", "rat"] },
+              { delay: 20, enemies: ["snake", "rat", "rat", "rat", "rat", "bat"] },
+              { delay: 26, enemies: ["snake", "snake", "rat", "rat", "bat", "bat", "bat"] }
             ] 
           },
           { 
             svg: LEVEL_BACKGROUNDS.STONE, 
             waves: [
-              { delay: 2, enemies: ["spider", "bat"] },
-              { delay: 6, enemies: ["spider", "spider", "snake"] },
-              { delay: 7, enemies: ["spider", "spider", "spider", "rat", "rat"] },
-              { delay: 8, enemies: ["spider", "spider", "spider", "snake", "bat", "bat"] }
+              { delay: 2, enemies: ["spider", "spider"] },
+              { delay: 8, enemies: ["spider", "spider", "spider", "snake"] },
+              { delay: 16, enemies: ["spider", "spider", "spider", "spider", "bat", "bat"] },
+              { delay: 20, enemies: ["spider", "spider", "spider", "spider"] },
+              { delay: 6, enemies: ["snake", "snake", "rat", "rat", "bat", "bat"] }
             ] 
           },
           { 
             svg: LEVEL_BACKGROUNDS.LAVA, 
             waves: [
-              { delay: 2, enemies: ["boar", "bat"] },
-              { delay: 8, enemies: ["boar", "spider", "snake"] },
-              { delay: 8, enemies: ["boar", "boar", "bat", "bat"] },
-              { delay: 10, enemies: ["boar", "boar", "spider", "snake", "snake"] },
-              { delay: 10, enemies: ["boar", "boar", "boar", "spider", "spider"] },
-              { delay: 12, enemies: ["boar", "boar", "boar", "boar", "snake", "bat", "bat"] }
+              { delay: 2, enemies: ["spider", "spider", "bat", "bat"] },
+              { delay: 10, enemies: ["boar", "snake"] },
+              { delay: 12, enemies: ["boar", "boar", "boar"] },
+              { delay: 40, enemies: ["boar", "boar", "spider", "snake", "snake"] },
+              { delay: 2, enemies: ["boar", "spider"] },
+              { delay: 2, enemies: ["boar", "snake"] },
+              { delay: 2, enemies: ["spider", "bat"] },
+              { delay: 2, enemies: ["snake", "bat"] },
+              { delay: 4, enemies: ["boar", "boar"] }
             ] 
           }
         ];
