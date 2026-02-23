@@ -74,6 +74,7 @@
       <option value="2">Level 2 (Sand)</option>
       <option value="3">Level 3 (Stone)</option>
       <option value="4">Level 4 (Swamp)</option>
+      <option value="5">Level 5 (Changeling)</option>
     </select>
   </div>
   <canvas id="gameCanvas"></canvas>
@@ -133,7 +134,8 @@
       <line x1="85" y1="80" x2="85" y2="72" stroke="%234e342e" stroke-width="3" stroke-linecap="round"/>
       <path d="M15,100 Q20,80 15,65" stroke="%23385723" stroke-width="2" fill="none"/>
       <line x1="15" y1="72" x2="15" y2="62" stroke="%234e342e" stroke-width="3" stroke-linecap="round"/>
-    </svg>`
+    </svg>`,
+      GREY: `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><rect width="100" height="100" fill="%239e9e9e"/></svg>`
     };
 
     const ENEMY_STATES = {
@@ -334,6 +336,13 @@
       player: createEmojiCanvas("⚔️", PLAYER_CFG.height * 0.5),
       drop: createEmojiCanvas("💧", PROJECTILE_CFG.radius * 3),
       web: createEmojiCanvas("🕸️", WEB_CFG.trapRadius)
+    };
+    const BOSS_EMOJI_CANVASES = {
+      rat: createEmojiCanvas("🐀", ENEMY_CFG.height * 4),
+      bat: createEmojiCanvas("🦇", ENEMY_CFG.height * 4),
+      snake: createEmojiCanvas("🐍", ENEMY_CFG.height * 8),
+      spider: createEmojiCanvas("🕷️", ENEMY_CFG.height * 4),
+      boar: createEmojiCanvas("🐗", ENEMY_CFG.height * 6)
     };
 
     class MathUtils {
@@ -1212,6 +1221,9 @@
         if (!this.alive || !player.action || !this.isOverlappingPlayer(player)) {
           return false;
         }
+        if (this.entering) {
+          return false;
+        }
         if (player.action.type === "dodge") {
           return false;
         }
@@ -1331,12 +1343,14 @@
         for (let i = 0; i < this.trail.length; i += 1) {
           const t = this.trail[i];
           const alpha = (1 - t.age / t.life) * t.alpha;
-          ctx.globalAlpha = alpha;
+          ctx.save();
+          let baseAlpha = this.baseAlphaOverride !== undefined && this.baseAlphaOverride !== null ? this.baseAlphaOverride : 1;
+          ctx.globalAlpha = alpha * baseAlpha;
           ctx.translate(t.x, t.y);
           ctx.rotate(t.angle);
+          if (this.spriteScale) ctx.scale(this.spriteScale, this.spriteScale);
           ctx.drawImage(this.emojiCanvas, -this.emojiCanvas.width / 2, -this.emojiCanvas.height / 2);
-          ctx.rotate(-t.angle);
-          ctx.translate(-t.x, -t.y);
+          ctx.restore();
         }
         ctx.restore();
 
@@ -1358,14 +1372,22 @@
         }
 
         ctx.save();
+        if (this.rainbowAura) {
+          ctx.shadowColor = "hsl(" + ((nowSeconds * 100) % 360) + ", 100%, 50%)";
+          ctx.shadowBlur = 20;
+        }
+        let baseAlpha = this.baseAlphaOverride !== undefined && this.baseAlphaOverride !== null ? this.baseAlphaOverride : 1;
         if (this.hitFlashTimer > 0) {
-          ctx.globalAlpha = 0.5 + 0.5 * Math.sin(nowSeconds * 40);
+          ctx.globalAlpha = baseAlpha * (0.5 + 0.5 * Math.sin(nowSeconds * 40));
         } else if (this.state === "windup") {
           const flashOn = Math.sin(nowSeconds * 36) > 0;
-          ctx.globalAlpha = flashOn ? 0.4 : 1;
+          ctx.globalAlpha = baseAlpha * (flashOn ? 0.4 : 1);
+        } else {
+          ctx.globalAlpha = baseAlpha;
         }
         ctx.translate(rx, ry);
         ctx.rotate(waddle + rAngle);
+        if (this.spriteScale) ctx.scale(this.spriteScale, this.spriteScale);
         ctx.drawImage(this.emojiCanvas, -this.emojiCanvas.width / 2, -this.emojiCanvas.height / 2);
         ctx.restore();
 
@@ -1656,12 +1678,359 @@
       }
     }
 
+    class ChangelingBossEnemy extends BaseEnemy {
+      constructor(x, y) {
+        super(x, y, "rat");
+        this.width = ENEMY_CFG.width * 4;
+        this.height = ENEMY_CFG.height * 4;
+        this.hitRadius = ENEMY_CFG.hitRadius * 4;
+        this.maxHealth = 30;
+        this.health = this.maxHealth;
+        this.displayHealth = this.maxHealth;
+        this.shadowOffsetY = -9;
+        this.knockbackMultiplier = 0.2;
+        
+        this.forms = ["rat", "bat", "snake", "spider", "boar"];
+        this.currentForm = "rat";
+        this.formTimer = 5 + Math.random() * 10;
+        this.actionTimer = 0.75 + Math.random() * 0.75;
+        
+        this.sineTimer = Math.random() * TAU;
+        this.sineFreq = 3 + Math.random() * 3;
+        this.swoopCount = 0;
+        this.isBursting = false;
+        this.burstTimer = 0;
+        this.burstOnDuration = 0.2 + Math.random() * 0.2;
+        this.burstOffDuration = 0.4 + Math.random() * 0.4;
+        
+        this.rainbowAura = true;
+        
+        this.applyForm("rat");
+      }
+      
+      applyForm(form) {
+        this.currentForm = form;
+        this.emojiCanvas = BOSS_EMOJI_CANVASES[form] || BOSS_EMOJI_CANVASES.rat;
+        
+        this.stalkSpeed = ENEMY_CFG.stalkSpeed;
+        this.chargeSpeed = ENEMY_CFG.chargeSpeed;
+        this.windupDuration = ENEMY_CFG.windupDuration;
+        this.chargeDuration = ENEMY_CFG.chargeDuration;
+        this.recoverDuration = ENEMY_CFG.recoverDuration;
+        this.baseChargeSpinAmount = ENEMY_CFG.chargeSpinAmount;
+        this.chargeTriggerDistance = ENEMY_CFG.chargeTriggerDistance;
+        this.maintainDistance = 0;
+        
+        if (form === "bat") {
+          this.stalkSpeed = ENEMY_CFG.stalkSpeed * 1.5;
+          this.chargeTriggerDistance = ENEMY_CFG.chargeTriggerDistance * 1.2;
+          this.windupDuration = 0.44;
+          this.chargeDuration = ENEMY_CFG.chargeDuration * 0.8;
+          this.recoverDuration = ENEMY_CFG.recoverDuration * 0.5;
+          this.chargeSpeed = ENEMY_CFG.chargeSpeed * 1.2;
+        } else if (form === "snake") {
+          this.stalkSpeed = ENEMY_CFG.stalkSpeed * 0.8;
+          this.chargeTriggerDistance = 300;
+          this.maintainDistance = 100;
+          this.windupDuration = ENEMY_CFG.windupDuration * 1.2;
+        } else if (form === "spider") {
+          this.stalkSpeed = ENEMY_CFG.stalkSpeed;
+          this.chargeTriggerDistance = 60;
+          this.windupDuration = 0.47;
+          this.chargeDuration = 0.075;
+          this.chargeSpeed = ENEMY_CFG.chargeSpeed * 1.05;
+          this.recoverDuration = 0.5;
+          this.baseChargeSpinAmount = TAU;
+          this.isBursting = Math.random() < 0.5;
+          this.burstTimer = Math.random() * 0.3;
+        } else if (form === "boar") {
+          this.stalkSpeed = ENEMY_CFG.stalkSpeed * 0.6;
+          this.chargeTriggerDistance = 180;
+          this.windupDuration = 1;
+          this.chargeDuration = 1.6;
+          this.chargeSpeed = ENEMY_CFG.chargeSpeed * 1.1;
+          this.recoverDuration = 0.8;
+          this.baseChargeSpinAmount = 0;
+        }
+
+        let scale = 1;
+        if (form === "snake") scale = 0.5;
+        else if (form === "boar") scale = 2 / 3;
+        this.spriteScale = scale;
+      }
+
+      applyChargedHit(player, awayFromHit) {
+        this.health = Math.max(0, this.health - 1);
+        this.lastHitByActionId = player.action.id;
+        this.hitFlashTimer = ENEMY_CFG.hitFlashDuration;
+        this.hitCooldown = ENEMY_CFG.hitCooldownDuration;
+      }
+
+      updateState(dt, playerDistance, toPlayerDir, game) {
+        if (this.stunTimer > 0) {
+          this.vx = 0;
+          this.vy = 0;
+          this.rollAngle = 0;
+          return;
+        }
+
+        if (this.entering) {
+          this.vx = 0;
+          this.vy = this.stalkSpeed;
+          this.rollAngle = 0;
+          return;
+        }
+
+        if (this.formTransitionTimer > 0) {
+          this.vx = 0;
+          this.vy = 0;
+          this.rollAngle = 0;
+          this.formTransitionTimer -= dt;
+          if (this.formTransitionTimer <= 0) {
+            this.applyForm(this.nextForm);
+            this.formTimer = 5 + Math.random() * 10;
+          }
+          return;
+        }
+
+        const handler = this.getStateHandlers()[this.state];
+        if (handler) {
+          handler(dt, playerDistance, toPlayerDir, game);
+        }
+      }
+
+      clampToPlayfield() {
+        if (this.entering) {
+          const halfW = this.width * 0.5;
+          const halfH = this.height * 0.5;
+          this.x = clamp(this.x, halfW, GAME_WIDTH - halfW);
+          if (this.y >= halfH) {
+            this.y = halfH;
+            this.entering = false;
+          }
+          return;
+        }
+
+        if (this.currentForm === "boar" && this.state === ENEMY_STATES.CHARGE) {
+          const halfW = this.width * 0.5;
+          const halfH = this.height * 0.5;
+          const minX = halfW;
+          const maxX = GAME_WIDTH - halfW;
+          const minY = halfH;
+          const maxY = GAME_HEIGHT - halfH;
+
+          if (this.x <= minX) {
+            this.x = minX;
+            this.chargeDirection.x = Math.abs(this.chargeDirection.x);
+          } else if (this.x >= maxX) {
+            this.x = maxX;
+            this.chargeDirection.x = -Math.abs(this.chargeDirection.x);
+          }
+          if (this.y <= minY) {
+            this.y = minY;
+            this.chargeDirection.y = Math.abs(this.chargeDirection.y);
+          } else if (this.y >= maxY) {
+            this.y = maxY;
+            this.chargeDirection.y = -Math.abs(this.chargeDirection.y);
+          }
+          this.y = clamp(this.y, minY, maxY);
+        } else {
+          super.clampToPlayfield();
+        }
+      }
+
+      updateStalkState(dt, playerDistance, toPlayerDir, game) {
+        this.formTimer -= dt;
+        if (this.formTimer <= 0) {
+          this.formTransitionTimer = 0.8;
+          this.formTransitionDuration = 0.8;
+          const availableForms = this.forms.filter(f => f !== this.currentForm);
+          this.nextForm = availableForms[Math.floor(Math.random() * availableForms.length)];
+          this.nextEmojiCanvas = BOSS_EMOJI_CANVASES[this.nextForm] || BOSS_EMOJI_CANVASES.rat;
+          
+          let scale = 1;
+          if (this.nextForm === "snake") scale = 0.5;
+          else if (this.nextForm === "boar") scale = 2 / 3;
+          this.nextSpriteScale = scale;
+          
+          this.formTimer = Infinity;
+          return;
+        }
+
+        this.actionTimer -= dt;
+        if (this.actionTimer <= 0) {
+          this.actionTimer = 0.75 + Math.random() * 0.75;
+          
+          if (Math.random() < 0.15) {
+            game.spawnEnemy(this.currentForm);
+          } else {
+            if (playerDistance <= this.chargeTriggerDistance * 3) {
+              this.state = ENEMY_STATES.WINDUP;
+              this.windupTimer = this.windupDuration;
+              const actualToPlayer = Vec2.sub({ x: game.player.x, y: game.player.y }, { x: this.x, y: this.y });
+              const dist = Vec2.length(actualToPlayer);
+              this.chargeDirection = dist > EPSILON ? Vec2.mul(actualToPlayer, 1 / dist) : { x: 0, y: 1 };
+              this.vx = 0;
+              this.vy = 0;
+              if (this.currentForm === "spider") {
+                this.isBursting = false;
+                this.burstTimer = 0;
+              }
+            }
+          }
+        }
+
+        if (this.currentForm === "rat" || this.currentForm === "boar") {
+          this.vx = toPlayerDir.x * this.stalkSpeed;
+          this.vy = toPlayerDir.y * this.stalkSpeed;
+          this.rollAngle = 0;
+        } else if (this.currentForm === "bat") {
+          this.sineTimer += dt;
+          const perp = { x: -toPlayerDir.y, y: toPlayerDir.x };
+          const sway = Math.sin(this.sineTimer * this.sineFreq) * 0.5;
+          const moveDir = Vec2.normalize(Vec2.add(toPlayerDir, Vec2.mul(perp, sway)));
+          this.vx = moveDir.x * this.stalkSpeed;
+          this.vy = moveDir.y * this.stalkSpeed;
+          this.rollAngle = sway * 0.5;
+        } else if (this.currentForm === "snake") {
+          if (playerDistance < this.maintainDistance) {
+            this.vx = -toPlayerDir.x * this.stalkSpeed;
+            this.vy = -toPlayerDir.y * this.stalkSpeed;
+          } else if (playerDistance > this.maintainDistance + 20) {
+            this.vx = toPlayerDir.x * this.stalkSpeed;
+            this.vy = toPlayerDir.y * this.stalkSpeed;
+          } else {
+            this.vx = 0;
+            this.vy = 0;
+          }
+          this.rollAngle = 0;
+        } else if (this.currentForm === "spider") {
+          this.burstTimer -= dt;
+          if (this.burstTimer <= 0) {
+            this.isBursting = !this.isBursting;
+            this.burstTimer = this.isBursting ? this.burstOnDuration : this.burstOffDuration;
+          }
+          if (this.isBursting) {
+            this.vx = toPlayerDir.x * this.stalkSpeed * 3;
+            this.vy = toPlayerDir.y * this.stalkSpeed * 3;
+          } else {
+            this.vx = 0;
+            this.vy = 0;
+          }
+          this.rollAngle = 0;
+        }
+      }
+
+      updateChargeState(dt, game) {
+        if (this.state === "charge") {
+          if (this.currentForm === "snake") {
+            const px = this.x + this.chargeDirection.x * 20;
+            const py = this.y + this.chargeDirection.y * 20;
+            const proj = new Projectile(px, py, this.chargeDirection.x * PROJECTILE_CFG.speed, this.chargeDirection.y * PROJECTILE_CFG.speed);
+            proj.scale = 2;
+            game.projectiles.push(proj);
+            this.state = ENEMY_STATES.RECOVER;
+            this.recoverTimer = this.recoverDuration;
+          } else if (this.currentForm === "spider") {
+            if (this.chargeElapsed === 0) {
+              const proj = new WebProjectile(this.x, this.y, game.player.x, game.player.y);
+              proj.scale = 2;
+              game.projectiles.push(proj);
+              this.currentChargeDuration = this.chargeDuration * 2;
+            }
+            this.vx = this.chargeDirection.x * this.chargeSpeed;
+            this.vy = this.chargeDirection.y * this.chargeSpeed;
+            this.chargeElapsed += dt;
+            const chargeT = clamp(this.chargeElapsed / this.currentChargeDuration, 0, 1);
+            this.rollAngle = this.chargeSpinAmount * easeOutCubic(chargeT);
+            this.spawnChargeTrail(dt);
+
+            if (this.chargeElapsed >= this.currentChargeDuration) {
+              this.state = ENEMY_STATES.RECOVER;
+              this.recoverTimer = this.recoverDuration;
+              this.vx = 0;
+              this.vy = 0;
+            }
+          } else {
+            if (this.chargeElapsed === 0) {
+               this.currentChargeDuration = this.chargeDuration * 2;
+            }
+            
+            this.vx = this.chargeDirection.x * this.chargeSpeed;
+            this.vy = this.chargeDirection.y * this.chargeSpeed;
+            this.chargeElapsed += dt;
+            const chargeT = clamp(this.chargeElapsed / this.currentChargeDuration, 0, 1);
+            this.rollAngle = this.chargeSpinAmount * easeOutCubic(chargeT);
+            this.spawnChargeTrail(dt);
+
+            if (this.chargeElapsed >= this.currentChargeDuration) {
+              this.state = ENEMY_STATES.RECOVER;
+              this.recoverTimer = this.recoverDuration;
+              this.vx = 0;
+              this.vy = 0;
+              
+              if (this.currentForm === "bat") {
+                if (this.swoopCount === 0) {
+                  this.swoopCount = 1;
+                  this.state = ENEMY_STATES.WINDUP;
+                  this.windupTimer = this.windupDuration;
+                  const toPlayer = Vec2.sub({ x: game.player.x, y: game.player.y }, { x: this.x, y: this.y });
+                  const dist = Vec2.length(toPlayer);
+                  this.chargeDirection = dist > EPSILON ? Vec2.mul(toPlayer, 1 / dist) : { x: 0, y: 1 };
+                } else {
+                  this.swoopCount = 0;
+                }
+              }
+            }
+          }
+        }
+      }
+      draw(ctx, nowSeconds) {
+        if (!this.alive) return;
+        
+        if (this.formTransitionTimer > 0) {
+          const t = 1 - (this.formTransitionTimer / this.formTransitionDuration);
+          const oldAlpha = 1 - t;
+          this.baseAlphaOverride = oldAlpha;
+          super.draw(ctx, nowSeconds);
+          this.baseAlphaOverride = null;
+          
+          const rx = this.renderX;
+          const ry = this.renderY;
+          const rAngle = this.renderRollAngle;
+          
+          ctx.save();
+          if (this.rainbowAura) {
+            ctx.shadowColor = "hsl(" + ((nowSeconds * 100) % 360) + ", 100%, 50%)";
+            ctx.shadowBlur = 20;
+          }
+          if (this.hitFlashTimer > 0) {
+            ctx.globalAlpha = t * (0.5 + 0.5 * Math.sin(nowSeconds * 40));
+          } else {
+            ctx.globalAlpha = t;
+          }
+          let waddle = 0;
+          if (this.state === "stalk" || this.state === "recover") {
+            waddle = Math.sin(this.waddleTime * 12) * 0.12;
+          }
+          ctx.translate(rx, ry);
+          ctx.rotate(waddle + rAngle);
+          if (this.nextSpriteScale) ctx.scale(this.nextSpriteScale, this.nextSpriteScale);
+          ctx.drawImage(this.nextEmojiCanvas, -this.nextEmojiCanvas.width / 2, -this.nextEmojiCanvas.height / 2);
+          ctx.restore();
+        } else {
+          super.draw(ctx, nowSeconds);
+        }
+      }
+    }
+
     class Projectile extends Entity {
       constructor(x, y, vx, vy) {
         super(x, y, PROJECTILE_CFG.radius * 2, PROJECTILE_CFG.radius * 2);
         this.vx = vx;
         this.vy = vy;
         this.alive = true;
+        this.scale = 1;
       }
       update(dt, game) {
         if (!this.alive) return;
@@ -1683,7 +2052,7 @@
         if (this.alive && game.player.health > 0 && game.player.iframeTimer <= 0) {
           if (!game.player.action || game.player.action.type !== "dodge") {
             const distSq = MathUtils.distanceSq(this.x, this.y, game.player.x, game.player.y);
-            const reach = (game.player.width + game.player.height) * 0.25 + PROJECTILE_CFG.radius;
+            const reach = (game.player.width + game.player.height) * 0.25 + PROJECTILE_CFG.radius * this.scale;
             if (distSq <= reach * reach) {
               game.player.takeDamage(game);
               this.alive = false;
@@ -1704,7 +2073,9 @@
           ctx.globalAlpha = alpha;
           ctx.translate(t.x, t.y);
           ctx.rotate(t.angle);
+          ctx.scale(this.scale, this.scale);
           ctx.drawImage(EMOJI_CANVASES.drop, -EMOJI_CANVASES.drop.width / 2, -EMOJI_CANVASES.drop.height / 2);
+          ctx.scale(1 / this.scale, 1 / this.scale);
           ctx.rotate(-t.angle);
           ctx.translate(-t.x, -t.y);
         }
@@ -1713,6 +2084,7 @@
         ctx.globalAlpha = 1;
         ctx.translate(this.x, this.y);
         ctx.rotate(currentAngle);
+        ctx.scale(this.scale, this.scale);
         ctx.drawImage(EMOJI_CANVASES.drop, -EMOJI_CANVASES.drop.width / 2, -EMOJI_CANVASES.drop.height / 2);
         ctx.restore();
       }
@@ -1771,7 +2143,7 @@
 
       land(game) {
         this.alive = false;
-        game.webs.push(new WebTrap(this.targetX, this.targetY));
+        game.webs.push(new WebTrap(this.targetX, this.targetY, this.scale));
       }
 
       draw(ctx) {
@@ -1783,23 +2155,24 @@
           ctx.globalAlpha = alpha;
           ctx.fillStyle = "#ffffff";
           ctx.beginPath();
-          ctx.arc(t.x, t.y, PROJECTILE_CFG.radius * 0.9, 0, TAU);
+          ctx.arc(t.x, t.y, PROJECTILE_CFG.radius * 0.9 * this.scale, 0, TAU);
           ctx.fill();
         }
         ctx.globalAlpha = 1;
         ctx.fillStyle = "#ffffff";
         ctx.beginPath();
-        ctx.arc(this.x, this.y - this.z, PROJECTILE_CFG.radius, 0, TAU);
+        ctx.arc(this.x, this.y - this.z, PROJECTILE_CFG.radius * this.scale, 0, TAU);
         ctx.fill();
         ctx.restore();
       }
     }
 
     class WebTrap {
-      constructor(x, y) {
+      constructor(x, y, scale = 1) {
         this.x = x;
         this.y = y;
-        this.radius = WEB_CFG.trapRadius;
+        this.scale = scale;
+        this.radius = WEB_CFG.trapRadius * scale;
         this.life = WEB_CFG.trapLifetime;
         this.age = 0;
       }
@@ -1824,6 +2197,7 @@
         ctx.save();
         ctx.globalAlpha = alpha;
         ctx.translate(this.x, this.y);
+        ctx.scale(this.scale, this.scale);
         ctx.drawImage(EMOJI_CANVASES.web, -EMOJI_CANVASES.web.width / 2, -EMOJI_CANVASES.web.height / 2);
         ctx.restore();
       }
@@ -1880,6 +2254,12 @@
               { delay: 2, enemies: ["spider", "bat"] },
               { delay: 2, enemies: ["snake", "bat"] },
               { delay: 10, enemies: ["boar", "boar"] }
+            ] 
+          },
+          { 
+            svg: LEVEL_BACKGROUNDS.GREY, 
+            waves: [
+              { delay: 0.1, enemies: ["changeling"] }
             ] 
           }
         ];
@@ -2900,6 +3280,10 @@
         else if (type === "snake") enemy = new SnakeEnemy(spawnX, spawnY);
         else if (type === "spider") enemy = new SpiderEnemy(spawnX, spawnY);
         else if (type === "boar") enemy = new BoarEnemy(spawnX, spawnY);
+        else if (type === "changeling") {
+          enemy = new ChangelingBossEnemy(GAME_WIDTH * 0.5, -ENEMY_CFG.height * 4);
+          enemy.entering = true;
+        }
         else enemy = new RatEnemy(spawnX, spawnY);
         
         enemy.entering = true;
@@ -2991,25 +3375,27 @@
         }
 
         const nowSeconds = performance.now() * 0.001;
-        for (let i = this.webs.length - 1; i >= 0; i--) {
-          this.webs[i].update(dt);
-          if (this.webs[i].expired) {
-            MathUtils.swapAndPop(this.webs, i);
+        if (!this.deathState) {
+          for (let i = this.webs.length - 1; i >= 0; i--) {
+            this.webs[i].update(dt);
+            if (this.webs[i].expired) {
+              MathUtils.swapAndPop(this.webs, i);
+            }
           }
-        }
 
-        this.player.update(dt, this.input, nowSeconds, this);
-        for (let i = 0; i < this.enemies.length; i++) {
-          this.enemies[i].update(dt, this.player, this);
-        }
-        for (let i = 0; i < this.enemies.length; i++) {
-          this.enemies[i].onPlayerContact(this.player, this);
-          this.enemies[i].checkDamageToPlayer(this.player, this);
-        }
-        for (let i = this.projectiles.length - 1; i >= 0; i--) {
-          this.projectiles[i].update(dt, this);
-          if (!this.projectiles[i].alive) {
-            MathUtils.swapAndPop(this.projectiles, i);
+          this.player.update(dt, this.input, nowSeconds, this);
+          for (let i = 0; i < this.enemies.length; i++) {
+            this.enemies[i].update(dt, this.player, this);
+          }
+          for (let i = 0; i < this.enemies.length; i++) {
+            this.enemies[i].onPlayerContact(this.player, this);
+            this.enemies[i].checkDamageToPlayer(this.player, this);
+          }
+          for (let i = this.projectiles.length - 1; i >= 0; i--) {
+            this.projectiles[i].update(dt, this);
+            if (!this.projectiles[i].alive) {
+              MathUtils.swapAndPop(this.projectiles, i);
+            }
           }
         }
       }
