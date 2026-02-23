@@ -1367,7 +1367,7 @@
         ctx.restore();
 
         let waddle = 0;
-        if (this.state === "stalk" || this.state === "recover") {
+        if (!this.isTired && (this.state === "stalk" || this.state === "recover")) {
           waddle = Math.sin(this.waddleTime * 12) * 0.12;
         }
 
@@ -1387,6 +1387,13 @@
         }
         ctx.translate(rx, ry);
         ctx.rotate(waddle + rAngle);
+        if (this.isTired && this.emojiCanvas) {
+          const squash = 0.06 * Math.abs(Math.sin(nowSeconds * 4));
+          const pivotY = this.emojiCanvas.height / 2;
+          ctx.translate(0, pivotY);
+          ctx.scale(1, 1 - squash);
+          ctx.translate(0, -pivotY);
+        }
         if (this.spriteScale) ctx.scale(this.spriteScale, this.spriteScale);
         ctx.drawImage(this.emojiCanvas, -this.emojiCanvas.width / 2, -this.emojiCanvas.height / 2);
         ctx.restore();
@@ -1684,7 +1691,7 @@
         this.width = ENEMY_CFG.width * 4;
         this.height = ENEMY_CFG.height * 4;
         this.hitRadius = ENEMY_CFG.hitRadius * 4;
-        this.maxHealth = 30;
+        this.maxHealth = 50;
         this.health = this.maxHealth;
         this.displayHealth = this.maxHealth;
         this.shadowOffsetY = -9;
@@ -1704,6 +1711,8 @@
         this.burstOffDuration = 0.4 + Math.random() * 0.4;
         
         this.rainbowAura = true;
+        this.attacksPerformed = 0;
+        this.tiredTimer = 0;
         
         this.applyForm("rat");
       }
@@ -1767,6 +1776,28 @@
       }
 
       updateState(dt, playerDistance, toPlayerDir, game) {
+        if (this.attacksPerformed >= 5 && this.state === ENEMY_STATES.STALK) {
+          this.attacksPerformed = 0;
+          this.tiredTimer = 6;
+        }
+
+        this.isTired = this.tiredTimer > 0;
+
+        // Slowly push the player outside of the boss's massive hitbox (still applies when tired)
+        if (playerDistance < this.hitRadius && playerDistance > EPSILON) {
+          const pushSpeed = 120;
+          game.player.x += toPlayerDir.x * pushSpeed * dt;
+          game.player.y += toPlayerDir.y * pushSpeed * dt;
+        }
+        
+        if (this.isTired) {
+          this.tiredTimer -= dt;
+          this.vx = 0;
+          this.vy = 0;
+          this.rollAngle = 0;
+          return;
+        }
+
         if (this.stunTimer > 0) {
           this.vx = 0;
           this.vy = 0;
@@ -1863,6 +1894,7 @@
           
           if (Math.random() < 0.15) {
             game.spawnEnemy(this.currentForm);
+            this.attacksPerformed++;
           } else {
             if (playerDistance <= this.chargeTriggerDistance * 3) {
               this.state = ENEMY_STATES.WINDUP;
@@ -1876,6 +1908,7 @@
                 this.isBursting = false;
                 this.burstTimer = 0;
               }
+              this.attacksPerformed++;
             }
           }
         }
