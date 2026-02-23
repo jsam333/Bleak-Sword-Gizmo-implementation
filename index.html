@@ -1644,6 +1644,7 @@
         this.chargeDuration = 1.6;
         this.chargeSpeed = ENEMY_CFG.chargeSpeed * 1.1;
         this.recoverDuration = 0.8;
+        this.postAttackCooldownDuration = 1.5;
         this.baseChargeSpinAmount = 0;
         this.shadowOffsetY = 4;
         this.knockbackMultiplier = 0.5;
@@ -1681,9 +1682,8 @@
       }
       applyChargedHit(player, awayFromHit) {
         const inWindup = this.state === ENEMY_STATES.WINDUP;
-        const last75Percent = this.windupTimer <= this.windupDuration * 0.75;
         
-        if (inWindup && last75Percent) {
+        if (inWindup) {
           this.health = Math.max(0, this.health - 1);
           this.lastHitByActionId = player.action.id;
           this.hitFlashTimer = ENEMY_CFG.hitFlashDuration;
@@ -1770,12 +1770,18 @@
           this.chargeDuration = 1.6;
           this.chargeSpeed = ENEMY_CFG.chargeSpeed * 1.1;
           this.recoverDuration = 0.8;
+          this.postAttackCooldownDuration = 1.5;
           this.baseChargeSpinAmount = 0;
         }
 
         this.windupDuration *= 1.2;
-        this.chargeTriggerDistance *= 3;
-        this.chargeDuration *= 2;
+        if (form === "spider") {
+          this.chargeTriggerDistance *= 4;
+          this.chargeDuration *= 4;
+        } else {
+          this.chargeTriggerDistance *= 3;
+          this.chargeDuration *= 2;
+        }
 
         let scale = 1;
         if (form === "snake") scale = 0.5;
@@ -1931,6 +1937,11 @@
                 this.isBursting = false;
                 this.burstTimer = 0;
               }
+              this.attacksPerformed++;
+            } else if (this.currentForm === "spider") {
+              const proj = new WebProjectile(this.x, this.y, game.player.x, game.player.y);
+              proj.scale = 2;
+              game.projectiles.push(proj);
               this.attacksPerformed++;
             }
           }
@@ -2253,7 +2264,8 @@
         ctx.save();
         ctx.globalAlpha = alpha;
         ctx.translate(this.x, this.y);
-        ctx.scale(this.scale, this.scale);
+        const visualScale = this.scale > 1 ? this.scale * 1.2 : this.scale;
+        ctx.scale(visualScale, visualScale);
         ctx.drawImage(EMOJI_CANVASES.web, -EMOJI_CANVASES.web.width / 2, -EMOJI_CANVASES.web.height / 2);
         ctx.restore();
       }
