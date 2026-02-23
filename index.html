@@ -1700,7 +1700,7 @@
         this.width = ENEMY_CFG.width * 4;
         this.height = ENEMY_CFG.height * 4;
         this.hitRadius = ENEMY_CFG.hitRadius * 4;
-        this.maxHealth = 50;
+        this.maxHealth = 40;
         this.health = this.maxHealth;
         this.displayHealth = this.maxHealth;
         this.shadowOffsetY = -9;
@@ -1773,6 +1773,10 @@
           this.baseChargeSpinAmount = 0;
         }
 
+        this.windupDuration *= 1.2;
+        this.chargeTriggerDistance *= 3;
+        this.chargeDuration *= 2;
+
         let scale = 1;
         if (form === "snake") scale = 0.5;
         else if (form === "boar") scale = 2 / 3;
@@ -1789,7 +1793,7 @@
       updateState(dt, playerDistance, toPlayerDir, game) {
         if (this.attacksPerformed >= 5 && this.state === ENEMY_STATES.STALK) {
           this.attacksPerformed = 0;
-          this.tiredTimer = 5;
+          this.tiredTimer = 4;
         }
 
         this.isTired = this.tiredTimer > 0;
@@ -1915,7 +1919,7 @@
             game.spawnEnemy(this.currentForm);
             this.attacksPerformed++;
           } else {
-            if (playerDistance <= this.chargeTriggerDistance * 3) {
+            if (playerDistance <= this.chargeTriggerDistance) {
               this.state = ENEMY_STATES.WINDUP;
               this.windupTimer = this.windupDuration;
               const actualToPlayer = Vec2.sub({ x: game.player.x, y: game.player.y }, { x: this.x, y: this.y });
@@ -1988,7 +1992,7 @@
               const proj = new WebProjectile(this.x, this.y, game.player.x, game.player.y);
               proj.scale = 2;
               game.projectiles.push(proj);
-              this.currentChargeDuration = this.chargeDuration * 2;
+              this.currentChargeDuration = this.chargeDuration;
             }
             this.vx = this.chargeDirection.x * this.chargeSpeed;
             this.vy = this.chargeDirection.y * this.chargeSpeed;
@@ -2005,7 +2009,7 @@
             }
           } else {
             if (this.chargeElapsed === 0) {
-               this.currentChargeDuration = this.chargeDuration * 2;
+               this.currentChargeDuration = this.chargeDuration;
             }
             
             this.vx = this.chargeDirection.x * this.chargeSpeed;
