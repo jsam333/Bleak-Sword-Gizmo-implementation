@@ -135,7 +135,16 @@
       <path d="M15,100 Q20,80 15,65" stroke="%23385723" stroke-width="2" fill="none"/>
       <line x1="15" y1="72" x2="15" y2="62" stroke="%234e342e" stroke-width="3" stroke-linecap="round"/>
     </svg>`,
-      GREY: `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><rect width="100" height="100" fill="%239e9e9e"/></svg>`
+      ABYSS: `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">
+      <rect width="100" height="100" fill="%2318181c"/>
+      <path d="M0,20 L30,40 L45,10 L80,35 L100,20" stroke="%232c2530" stroke-width="2" fill="none"/>
+      <path d="M10,100 L35,60 L60,85 L100,50" stroke="%232a2a35" stroke-width="3" fill="none"/>
+      <polygon points="15,70 25,60 30,75 20,85" fill="%230f0f12"/>
+      <polygon points="75,20 85,15 90,30 80,35" fill="%23120f12"/>
+      <polygon points="50,45 60,40 65,55 55,60" fill="%231a151a"/>
+      <circle cx="50" cy="50" r="15" stroke="%233a1e28" stroke-width="1" fill="none"/>
+      <circle cx="50" cy="50" r="10" stroke="%232a151d" stroke-width="1" fill="none"/>
+    </svg>`
     };
 
     const ENEMY_STATES = {
@@ -1713,6 +1722,8 @@
         this.rainbowAura = true;
         this.attacksPerformed = 0;
         this.tiredTimer = 0;
+        this.spawnChance = 0.15;
+        this.formsUsed = ["rat"];
         
         this.applyForm("rat");
       }
@@ -1778,7 +1789,7 @@
       updateState(dt, playerDistance, toPlayerDir, game) {
         if (this.attacksPerformed >= 5 && this.state === ENEMY_STATES.STALK) {
           this.attacksPerformed = 0;
-          this.tiredTimer = 6;
+          this.tiredTimer = 5;
         }
 
         this.isTired = this.tiredTimer > 0;
@@ -1819,6 +1830,8 @@
           this.formTransitionTimer -= dt;
           if (this.formTransitionTimer <= 0) {
             this.applyForm(this.nextForm);
+            this.formsUsed.push(this.nextForm);
+            this.spawnChance = Math.min(0.5, this.spawnChance + 0.05);
             this.formTimer = 5 + Math.random() * 10;
           }
           return;
@@ -1875,8 +1888,14 @@
         if (this.formTimer <= 0) {
           this.formTransitionTimer = 0.8;
           this.formTransitionDuration = 0.8;
-          const availableForms = this.forms.filter(f => f !== this.currentForm);
-          this.nextForm = availableForms[Math.floor(Math.random() * availableForms.length)];
+          const unusedForms = this.forms.filter(f => !this.formsUsed.includes(f));
+          if (unusedForms.length === 0) {
+            this.formsUsed = [];
+            const others = this.forms.filter(f => f !== this.currentForm);
+            this.nextForm = others[Math.floor(Math.random() * others.length)];
+          } else {
+            this.nextForm = unusedForms[Math.floor(Math.random() * unusedForms.length)];
+          }
           this.nextEmojiCanvas = BOSS_EMOJI_CANVASES[this.nextForm] || BOSS_EMOJI_CANVASES.rat;
           
           let scale = 1;
@@ -1892,7 +1911,7 @@
         if (this.actionTimer <= 0) {
           this.actionTimer = 0.75 + Math.random() * 0.75;
           
-          if (Math.random() < 0.15) {
+          if (Math.random() < this.spawnChance) {
             game.spawnEnemy(this.currentForm);
             this.attacksPerformed++;
           } else {
@@ -2290,7 +2309,7 @@
             ] 
           },
           { 
-            svg: LEVEL_BACKGROUNDS.GREY, 
+            svg: LEVEL_BACKGROUNDS.ABYSS, 
             waves: [
               { delay: 0.1, enemies: ["changeling"] }
             ] 
