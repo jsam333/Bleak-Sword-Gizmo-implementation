@@ -3406,6 +3406,8 @@
         this.enemies = [this.enemy];
         this.enemy.state = ENEMY_STATES.CHARGE;
         this.enemy.chargeDirection = { x: 0, y: 1 };
+      const tutorialSpinSign = this.enemy.chargeDirection.x >= 0 ? 1 : -1;
+      this.enemy.chargeSpinAmount = this.enemy.baseChargeSpinAmount * tutorialSpinSign;
         this.enemy.chargeTimer = this.enemy.chargeDuration;
         this.enemy.chargeElapsed = 0;
         this.enemy.baseChargeSpinAmount = ENEMY_CFG.chargeSpinAmount;
