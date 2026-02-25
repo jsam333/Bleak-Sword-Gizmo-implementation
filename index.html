@@ -81,12 +81,16 @@
   <script>
     "use strict";
 
+    // ==========================================
+    // CONFIGURATION & CONSTANTS
+    // ==========================================
+
     const GAME_WIDTH = 500;
     const GAME_HEIGHT = 720;
     const TAU = Math.PI * 2;
     const EPSILON = 1e-7;
 
-        const LEVEL_BACKGROUNDS = {
+    const LEVEL_BACKGROUNDS = {
       GRASS: `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">
       <rect width="100" height="100" fill="%237cb342"/>
       <path d="M10,20 Q15,5 20,20 Q25,5 30,20" stroke="%23689f38" stroke-width="2" fill="none"/>
@@ -314,6 +318,10 @@
       freeFightDelay: 0.5
     };
 
+    // ==========================================
+    // UTILITIES
+    // ==========================================
+
     function clamp(value, min, max) {
       return Math.max(min, Math.min(max, value));
     }
@@ -321,6 +329,45 @@
     function easeOutCubic(t) {
       const invT = 1 - t;
       return 1 - (invT * invT * invT);
+    }
+
+    const ENEMY_SPAWN_Y_RANGES = {
+      regular: { minY: 0.1, maxY: 0.9 },
+      tutorial: { minY: 0.22, maxY: 0.78 }
+    };
+
+    const TUTORIAL_ATTACK_FALLBACK_DIRECTION = { x: 0, y: -1 };
+    const ENEMY_CHARGE_FALLBACK_DIRECTION = { x: 0, y: 1 };
+
+    function randomInRange(min, max) {
+      return min + Math.random() * (max - min);
+    }
+
+    function normalizeOrDefault(vector, fallback = { x: 0, y: 0 }) {
+      const length = Vec2.length(vector);
+      return length > EPSILON ? Vec2.mul(vector, 1 / length) : { x: fallback.x, y: fallback.y };
+    }
+
+    function clearArrayValues(array) {
+      array.length = 0;
+    }
+
+    function clearArrays(...arrays) {
+      for (let i = 0; i < arrays.length; i += 1) {
+        clearArrayValues(arrays[i]);
+      }
+    }
+
+    function getOffscreenSpawnX(padding = 0) {
+      return Math.random() < 0.5 ? -padding : GAME_WIDTH + padding;
+    }
+
+    function getSpawnY(rangeCfg, halfHeight) {
+      return clamp(GAME_HEIGHT * randomInRange(rangeCfg.minY, rangeCfg.maxY), halfHeight, GAME_HEIGHT - halfHeight);
+    }
+
+    function advanceTimer(value, dt) {
+      return Math.max(0, value - dt);
     }
 
     function createEmojiCanvas(emoji, size) {
@@ -428,6 +475,10 @@
         b: Math.round((b + m) * 255)
       };
     }
+
+    // ==========================================
+    // INPUT SYSTEM
+    // ==========================================
 
     class InputSystem {
       constructor(getWorldPointer) {
@@ -557,6 +608,10 @@
       }
     }
 
+    // ==========================================
+    // BASE ENTITIES & PLAYER
+    // ==========================================
+
     class Entity {
       constructor(x, y, width, height) {
         this.x = x;
@@ -672,8 +727,8 @@
       }
 
       updateStatusTimers(dt) {
-        this.iframeTimer = Math.max(0, this.iframeTimer - dt);
-        this.hitFlashTimer = Math.max(0, this.hitFlashTimer - dt);
+        this.iframeTimer = advanceTimer(this.iframeTimer, dt);
+        this.hitFlashTimer = advanceTimer(this.hitFlashTimer, dt);
         if (this.displayHealth > this.health) {
           this.displayHealth = Math.max(this.health, this.displayHealth - dt * 2.5);
         }
@@ -731,6 +786,10 @@
         this.vx = 0;
         this.vy = 0;
         this.action = null;
+        this.iframeTimer = 0;
+        this.hitFlashTimer = 0;
+        this.chargeVisible = false;
+        this.trailSpawnTimer = 0;
         this.trail = [];
         this.spinAngle = 0;
         this.health = this.maxHealth;
@@ -943,6 +1002,10 @@
       }
     }
 
+    // ==========================================
+    // ENEMIES
+    // ==========================================
+
     class BaseEnemy extends Entity {
       constructor(x, y, emojiKey) {
         super(x, y, ENEMY_CFG.width, ENEMY_CFG.height);
@@ -1007,7 +1070,7 @@
 
         const toPlayer = Vec2.sub({ x: player.x, y: player.y }, { x: this.x, y: this.y });
         const playerDistance = Vec2.length(toPlayer);
-        const toPlayerDir = playerDistance > EPSILON ? Vec2.mul(toPlayer, 1 / playerDistance) : { x: 0, y: 0 };
+        const toPlayerDir = normalizeOrDefault(toPlayer);
 
         this.updateState(dt, playerDistance, toPlayerDir, game);
         this.applyKnockbackDamping(dt);
@@ -1477,7 +1540,8 @@
             this.windupTimer = this.windupDuration;
             const toPlayer = Vec2.sub({ x: game.player.x, y: game.player.y }, { x: this.x, y: this.y });
             const dist = Vec2.length(toPlayer);
-            this.chargeDirection = dist > EPSILON ? Vec2.mul(toPlayer, 1 / dist) : { x: 0, y: 1 };
+            this.chargeDirection = normalizeOrDefault(toPlayer, ENEMY_CHARGE_FALLBACK_DIRECTION);
+            this.chargeDirection = normalizeOrDefault(toPlayer, ENEMY_CHARGE_FALLBACK_DIRECTION);
           } else {
             this.swoopCount = 0;
           }
@@ -2043,7 +2107,7 @@
                   this.windupTimer = this.windupDuration;
                   const toPlayer = Vec2.sub({ x: game.player.x, y: game.player.y }, { x: this.x, y: this.y });
                   const dist = Vec2.length(toPlayer);
-                  this.chargeDirection = dist > EPSILON ? Vec2.mul(toPlayer, 1 / dist) : { x: 0, y: 1 };
+                  this.chargeDirection = normalizeOrDefault(toPlayer, ENEMY_CHARGE_FALLBACK_DIRECTION);
                 } else {
                   this.swoopCount = 0;
                 }
@@ -2090,6 +2154,10 @@
         }
       }
     }
+
+    // ==========================================
+    // PROJECTILES & HAZARDS
+    // ==========================================
 
     class Projectile extends Entity {
       constructor(x, y, vx, vy) {
@@ -2180,7 +2248,7 @@
           return;
         }
 
-        const dir = distance > EPSILON ? Vec2.mul(toTarget, 1 / distance) : { x: 0, y: 0 };
+        const dir = normalizeOrDefault(toTarget);
         this.vx = dir.x * this.speed;
         this.vy = dir.y * this.speed;
         this.x += this.vx * dt;
@@ -2270,6 +2338,10 @@
         ctx.restore();
       }
     }
+
+    // ==========================================
+    // GAME SYSTEMS (LEVELS, PARTICLES, TUTORIAL)
+    // ==========================================
 
     class LevelManager {
       constructor(game) {
@@ -2686,7 +2758,7 @@
         if (chargeProgress >= 1) {
           const targetEnemy = this.game.getClosestAliveEnemy(player) || enemy;
           const dir = Vec2.sub({ x: targetEnemy.x, y: targetEnemy.y }, { x: player.x, y: player.y });
-          this.attackDir = Vec2.length(dir) > 1e-5 ? Vec2.normalize(dir) : { x: 0, y: -1 };
+          this.attackDir = normalizeOrDefault(dir, TUTORIAL_ATTACK_FALLBACK_DIRECTION);
           this.setPhase(TUTORIAL_PHASES.WAIT_ATTACK);
         }
       }
@@ -2702,7 +2774,7 @@
         const targetEnemy = this.game.getClosestAliveEnemy(player) || this.game.enemy;
         if (targetEnemy) {
           const dir = Vec2.sub({ x: targetEnemy.x, y: targetEnemy.y }, { x: player.x, y: player.y });
-          this.attackDir = Vec2.length(dir) > 1e-5 ? Vec2.normalize(dir) : { x: 0, y: -1 };
+          this.attackDir = normalizeOrDefault(dir, TUTORIAL_ATTACK_FALLBACK_DIRECTION);
         }
 
         if (input.pendingSwipe) {
@@ -2753,7 +2825,7 @@
         this.tutorialTimeScale = 1;
         this.textAlpha = 0;
         if (this.chainSpawnRemaining > 0) {
-          this.chainSpawnTimer = Math.max(0, this.chainSpawnTimer - realDt);
+          this.chainSpawnTimer = advanceTimer(this.chainSpawnTimer, realDt);
           if (this.chainSpawnTimer <= 0) {
             this.spawnEnemyFromRandomHorizontalSide();
             this.chainSpawnRemaining -= 1;
@@ -2799,12 +2871,11 @@
       spawnEnemyFromRandomHorizontalSide() {
         const template = this.game.enemy;
         const enemy = new RatEnemy(0, 0);
-        const fromLeft = Math.random() < 0.5;
-        const spawnX = fromLeft ? -template.width : GAME_WIDTH + template.width;
+        const spawnX = getOffscreenSpawnX(template.width);
         
         // Ensure tutorial enemies also spawn within vertical bounds
         const halfH = ENEMY_CFG.height * 0.5;
-        const spawnY = clamp(GAME_HEIGHT * (0.22 + Math.random() * 0.56), halfH, GAME_HEIGHT - halfH);
+        const spawnY = getSpawnY(ENEMY_SPAWN_Y_RANGES.tutorial, halfH);
 
         enemy.x = spawnX;
         enemy.y = spawnY;
@@ -3075,6 +3146,10 @@
       }
     }
 
+    // ==========================================
+    // RENDERER
+    // ==========================================
+
     class Renderer {
       constructor(game, ctx, screen, view) {
         this.game = game;
@@ -3244,6 +3319,10 @@
       }
     }
 
+    // ==========================================
+    // MAIN GAME ENGINE
+    // ==========================================
+
     class Game {
       constructor(canvas) {
         this.canvas = canvas;
@@ -3259,6 +3338,7 @@
         };
 
         this.bgImage = new Image();
+        this.backgroundLoadToken = 0;
         this.bgPattern = null;
         this.setBackground(LEVEL_BACKGROUNDS.GRASS);
 
@@ -3305,10 +3385,16 @@
       }
 
       setBackground(svgData) {
-        this.bgImage.onload = () => {
-          this.bgPattern = this.ctx.createPattern(this.bgImage, "repeat");
+        const requestToken = ++this.backgroundLoadToken;
+        const nextImage = new Image();
+        nextImage.onload = () => {
+          if (this.backgroundLoadToken !== requestToken) {
+            return;
+          }
+          this.bgPattern = this.ctx.createPattern(nextImage, "repeat");
         };
-        this.bgImage.src = svgData;
+        nextImage.src = svgData;
+        this.bgImage = nextImage;
       }
 
       setupTutorialEnemy() {
@@ -3324,24 +3410,25 @@
       }
 
       clearLevelState() {
-        this.groundSplotches = [];
-        this.webs = [];
+        clearArrays(
+          this.groundSplotches,
+          this.webs,
+          this.flashRings,
+          this.projectiles,
+          this.enemies
+        );
         this.particles.particles = [];
         this.rainbowParticles.particles = [];
-        this.flashRings = [];
-        this.projectiles = [];
-        this.enemies = [];
         this.player.resetPosition();
       }
 
       spawnEnemy(type) {
         let enemy;
-        const fromLeft = Math.random() < 0.5;
-        const spawnX = fromLeft ? -50 : GAME_WIDTH + 50;
+        const spawnX = getOffscreenSpawnX(50);
         
         // Spawn them on screen vertically
         const halfH = ENEMY_CFG.height * 0.5;
-        const spawnY = clamp(GAME_HEIGHT * (0.1 + Math.random() * 0.8), halfH, GAME_HEIGHT - halfH);
+        const spawnY = getSpawnY(ENEMY_SPAWN_Y_RANGES.regular, halfH);
         
         if (type === "rat") enemy = new RatEnemy(spawnX, spawnY);
         else if (type === "bat") enemy = new BatEnemy(spawnX, spawnY);
@@ -3475,15 +3562,7 @@
         this.renderer.render();
       }
 
-      frame = (timestamp) => {
-        if (!this.lastTimestamp) {
-          this.lastTimestamp = timestamp;
-        }
-
-        let frameDt = (timestamp - this.lastTimestamp) / 1000;
-        this.lastTimestamp = timestamp;
-        frameDt = clamp(frameDt, 0, this.maxFrame);
-
+      handleDeathFrame(frameDt) {
         if (this.deathState === "delay") {
           this.deathTimer -= frameDt;
           if (this.deathTimer <= 0) {
@@ -3493,9 +3572,10 @@
           }
           this.update(this.fixedStep * this.timeScale);
           this.render();
-          requestAnimationFrame(this.frame);
-          return;
-        } else if (this.deathState === "waitingForInput") {
+          return true;
+        }
+
+        if (this.deathState === "waitingForInput") {
           if (this.input.down || this.input.pendingSwipe) {
             this.input.down = false;
             this.input.pendingSwipe = null;
@@ -3511,10 +3591,13 @@
             }
           }
           this.render();
-          requestAnimationFrame(this.frame);
-          return;
+          return true;
         }
 
+        return false;
+      }
+
+      updateLifecycle(frameDt) {
         if (this.player.health <= 0 && !this.deathState) {
           this.deathState = "delay";
           this.deathTimer = this.deathDelayDuration;
@@ -3533,23 +3616,46 @@
         } else {
           this.timeScale = 1;
         }
+      }
 
-    const holdDt = this.hitstopTimer > 0 ? 0 : frameDt * this.timeScale;
-    this.input.advanceHold(holdDt);
+      runSimulation(frameDt) {
+        const holdDt = this.hitstopTimer > 0 ? 0 : frameDt * this.timeScale;
+        this.input.advanceHold(holdDt);
 
-    this.accumulator += frameDt;
-    while (this.accumulator >= this.fixedStep) {
-      const tutScale = this.tutorial ? this.tutorial.getTimeScale() : 1;
-      this.update(this.fixedStep * this.timeScale * tutScale);
-      this.accumulator -= this.fixedStep;
-    }
+        this.accumulator += frameDt;
+        while (this.accumulator >= this.fixedStep) {
+          const tutScale = this.tutorial ? this.tutorial.getTimeScale() : 1;
+          this.update(this.fixedStep * this.timeScale * tutScale);
+          this.accumulator -= this.fixedStep;
+        }
+      }
 
+      renderInterpolation() {
         const interpAlpha = this.fixedStep > 1e-7 ? clamp(this.accumulator / this.fixedStep, 0, 1) : 1;
         for (let i = 0; i < this.enemies.length; i++) {
           this.enemies[i].interpolate(interpAlpha);
         }
 
         this.render();
+      }
+
+      frame = (timestamp) => {
+        if (!this.lastTimestamp) {
+          this.lastTimestamp = timestamp;
+        }
+
+        let frameDt = (timestamp - this.lastTimestamp) / 1000;
+        this.lastTimestamp = timestamp;
+        frameDt = clamp(frameDt, 0, this.maxFrame);
+
+        if (this.handleDeathFrame(frameDt)) {
+          requestAnimationFrame(this.frame);
+          return;
+        }
+
+        this.updateLifecycle(frameDt);
+        this.runSimulation(frameDt);
+        this.renderInterpolation();
         requestAnimationFrame(this.frame);
       };
 
@@ -3557,6 +3663,10 @@
         requestAnimationFrame(this.frame);
       }
     }
+
+    // ==========================================
+    // UI BINDINGS
+    // ==========================================
 
     const game = new Game(document.getElementById("gameCanvas"));
     game.start();
