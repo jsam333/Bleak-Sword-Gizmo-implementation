@@ -5,7 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Bleak Sword Gizmo Prototype</title>
   <style>
+    @import url("https://fonts.googleapis.com/css2?family=Karla:wght@400;700&display=swap");
+
     :root {
+      --game-font: "Karla", sans-serif;
       color-scheme: light;
     }
 
@@ -23,7 +26,7 @@
       height: 100%;
       overflow: hidden;
       background: #6a6a6a;
-      font-family: Arial, sans-serif;
+      font-family: var(--game-font);
     }
 
     #gameCanvas {
@@ -42,7 +45,7 @@
       padding: 15px;
       border-radius: 8px;
       z-index: 100;
-      font-family: Arial, sans-serif;
+      font-family: var(--game-font);
     }
 
     #devPanel h3 {
@@ -89,6 +92,7 @@
     const GAME_HEIGHT = 720;
     const TAU = Math.PI * 2;
     const EPSILON = 1e-7;
+    const GAME_FONT_FAMILY = "Karla, sans-serif";
 
     const LEVEL_BACKGROUNDS = {
       GRASS: `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">
@@ -376,7 +380,7 @@
       const fontSize = size * 1.2;
       canvas.width = fontSize * 1.5;
       canvas.height = fontSize * 1.5;
-      ctx.font = `${fontSize}px sans-serif`;
+      ctx.font = `${fontSize}px ${GAME_FONT_FAMILY}`;
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
       ctx.fillText(emoji, canvas.width / 2, canvas.height / 2);
@@ -2954,7 +2958,7 @@
       }
 
       drawText(ctx, text, x, y, size) {
-        ctx.font = `bold ${size}px Arial`;
+        ctx.font = `bold ${size}px ${GAME_FONT_FAMILY}`;
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
         ctx.fillStyle = "rgba(0,0,0,0.5)";
@@ -3164,7 +3168,7 @@
         this.ctx.save();
         this.ctx.fillStyle = "rgba(0,0,0,0.5)";
         this.ctx.fillRect(-GAME_WIDTH, -GAME_HEIGHT, GAME_WIDTH * 3, GAME_HEIGHT * 3);
-        this.ctx.font = "bold 36px Arial";
+        this.ctx.font = `bold 36px ${GAME_FONT_FAMILY}`;
         this.ctx.textAlign = "center";
         this.ctx.textBaseline = "middle";
         this.ctx.fillStyle = "rgba(0,0,0,0.5)";
@@ -3174,7 +3178,7 @@
         if (showTapPrompt) {
           const blink = Math.sin(performance.now() * 0.005) > 0;
           if (blink) {
-            this.ctx.font = "bold 24px Arial";
+            this.ctx.font = `bold 24px ${GAME_FONT_FAMILY}`;
             this.ctx.fillStyle = "#ffffff";
             this.ctx.fillText(tapText || "Tap to continue", centerX, textY + 60);
           }
