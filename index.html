@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <title>Bleak Sword Gizmo Prototype</title>
   <style>
     @import url("https://fonts.googleapis.com/css2?family=Karla:wght@400;700&display=swap");
@@ -14,9 +14,11 @@
 
     * {
       box-sizing: border-box;
-      user-select: none;
       -webkit-user-select: none;
       -webkit-touch-callout: none;
+      -moz-user-select: none;
+      -ms-user-select: none;
+      user-select: none;
     }
 
     html,
@@ -27,13 +29,20 @@
       overflow: hidden;
       background: #6a6a6a;
       font-family: var(--game-font);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      touch-action: none;
+      -webkit-tap-highlight-color: transparent;
     }
 
     #gameCanvas {
       display: block;
-      width: 100vw;
-      height: 100vh;
+      width: min(100vw, calc(100vh * 0.694444));
+      height: auto;
+      aspect-ratio: 500 / 720;
       touch-action: none;
+      -webkit-tap-highlight-color: transparent;
       background: #6a6a6a;
     }
     #devPanel {
@@ -42,28 +51,35 @@
       left: 20px;
       background: rgba(0, 0, 0, 0.8);
       color: white;
-      padding: 15px;
-      border-radius: 8px;
+      padding: 6px;
+      border-radius: 4px;
       z-index: 100;
       font-family: var(--game-font);
+      display: block;
     }
 
     #devPanel h3 {
       margin-top: 0;
-      margin-bottom: 10px;
-      font-size: 16px;
+      margin-bottom: 5px;
+      font-size: 11px;
+      line-height: 1;
+    }
+
+    #devPanel label {
+      font-size: 10px;
     }
 
     #devPanel select {
-      padding: 4px;
-      font-size: 14px;
+      padding: 2px;
+      font-size: 10px;
       background: #333;
       color: white;
       border: 1px solid #555;
-      border-radius: 4px;
-      margin-top: 5px;
+      border-radius: 3px;
+      margin-top: 3px;
       display: block;
-      width: 100%;
+      width: auto;
+      min-width: 110px;
       cursor: pointer;
     }
   </style>
@@ -83,6 +99,10 @@
   <canvas id="gameCanvas"></canvas>
   <script>
     "use strict";
+
+    ["dblclick", "contextmenu", "selectstart", "gesturestart"].forEach((eventName) => {
+      document.addEventListener(eventName, (event) => event.preventDefault(), { passive: false });
+    });
 
     // ==========================================
     // CONFIGURATION & CONSTANTS
@@ -194,8 +214,8 @@
       hitFlashDuration: 0.3,
       dodgeDuration: 0.12,
       chargedDuration: 0.2,
-      dodgeTravel: 78,
-      chargedTravel: 150,
+      dodgeTravel: 78 * 1.3,
+      chargedTravel: 150 * 1.1,
       dodgeSpin: Math.PI * 0.8,
       chargedSpin: TAU * 2,
       chargedTrailInterval: 0.0064,
@@ -216,7 +236,7 @@
       height: 30,
       hitRadius: 18,
       maxHealth: 4,
-      chargeTriggerDistance: 75,
+      chargeTriggerDistance: 110,
       windupDuration: 0.57,
       chargeDuration: 0.256,
       recoverDuration: 0.3,
@@ -291,7 +311,7 @@
     };
 
     const UI_CFG = {
-      healthBarWidth: 160,
+      healthBarWidth: 208,
       healthBarHeight: 10,
       healthBarBottomMargin: 24
     };
@@ -313,8 +333,9 @@
 
     const TUTORIAL_CFG = {
       dodgeSlowMoTrigger: 0.45,
-      crawlScale: 0.03,
-      crawlDuration: 2.8,
+      crawlStartScale: 0.025,
+      crawlScale: 0,
+      crawlDuration: 7,
       slowDropRate: 12,
       chainSpawnDelay: 0.2,
       chainSpawnCount: 2,
@@ -388,12 +409,12 @@
     }
 
     const EMOJI_CANVASES = {
-      rat: createEmojiCanvas("🐀", ENEMY_CFG.height),
-      bat: createEmojiCanvas("🦇", ENEMY_CFG.height),
-      snake: createEmojiCanvas("🐍", ENEMY_CFG.height * 2),
-      spider: createEmojiCanvas("🕷️", ENEMY_CFG.height),
-      boar: createEmojiCanvas("🐗", ENEMY_CFG.height * 1.5),
-      player: createEmojiCanvas("⚔️", PLAYER_CFG.height * 0.5),
+      rat: createEmojiCanvas("🐀", ENEMY_CFG.height * 1.3),
+      bat: createEmojiCanvas("🦇", ENEMY_CFG.height * 1.3),
+      snake: createEmojiCanvas("🐍", ENEMY_CFG.height * 2.6),
+      spider: createEmojiCanvas("🕷️", ENEMY_CFG.height * 1.3),
+      boar: createEmojiCanvas("🐗", ENEMY_CFG.height * 1.95),
+      player: createEmojiCanvas("⚔️", PLAYER_CFG.height * 0.65),
       drop: createEmojiCanvas("💧", PROJECTILE_CFG.radius * 3),
       web: createEmojiCanvas("🕸️", WEB_CFG.trapRadius)
     };
@@ -975,6 +996,8 @@
         ctx.save();
         ctx.translate(this.x, this.y);
         ctx.rotate(this.spinAngle);
+        ctx.shadowColor = "rgba(255, 255, 255, 0.85)";
+        ctx.shadowBlur = 28;
         ctx.drawImage(EMOJI_CANVASES.player, -EMOJI_CANVASES.player.width / 2, -EMOJI_CANVASES.player.height / 2 + 4 + floatOffset);
         ctx.restore();
       }
@@ -1056,6 +1079,9 @@
         this.baseChargeSpinAmount = ENEMY_CFG.chargeSpinAmount;
         this.chargeSpinAmount = 0;
         this.chargeElapsed = 0;
+        this.redAura = true;
+        this.rainbowAura = false;
+        this.ignoreTutorialFirstAttackDamage = false;
         
         this.flankDir = Math.random() < 0.5 ? 1 : -1;
         this.flankTimer = Math.random() * TAU;
@@ -1394,6 +1420,7 @@
 
       checkDamageToPlayer(player, game) {
         if (!this.alive || this.state !== "charge") return;
+        if (this.ignoreTutorialFirstAttackDamage) return;
         if (player.iframeTimer > 0 || player.health <= 0) return;
         if (player.action && (player.action.type === "dodge" || player.action.type === "charged")) return;
         if (!this.isOverlappingPlayer(player)) return;
@@ -1450,6 +1477,9 @@
         ctx.save();
         if (this.rainbowAura) {
           ctx.shadowColor = "hsl(" + ((nowSeconds * 100) % 360) + ", 100%, 50%)";
+          ctx.shadowBlur = 40;
+        } else if (this.redAura) {
+          ctx.shadowColor = "rgba(255, 0, 0, 0.85)";
           ctx.shadowBlur = 20;
         }
         let baseAlpha = this.baseAlphaOverride !== undefined && this.baseAlphaOverride !== null ? this.baseAlphaOverride : 1;
@@ -1631,7 +1661,10 @@
         if (this.state === "charge") {
           const px = this.x + this.chargeDirection.x * 20;
           const py = this.y + this.chargeDirection.y * 20;
-          game.projectiles.push(new Projectile(px, py, this.chargeDirection.x * PROJECTILE_CFG.speed, this.chargeDirection.y * PROJECTILE_CFG.speed));
+          const proj = new Projectile(px, py, this.chargeDirection.x * PROJECTILE_CFG.speed, this.chargeDirection.y * PROJECTILE_CFG.speed);
+            proj.scale = 1.56;
+          proj.piercePlayer = true;
+          game.projectiles.push(proj);
           this.state = ENEMY_STATES.RECOVER;
           this.recoverTimer = this.recoverDuration;
           this.postAttackCooldownTimer = this.minFireCooldown + Math.random() * (this.maxFireCooldown - this.minFireCooldown);
@@ -1703,7 +1736,7 @@
         this.width = ENEMY_CFG.width * 1.5;
         this.height = ENEMY_CFG.height * 1.5;
         this.hitRadius = ENEMY_CFG.hitRadius * 1.5;
-        this.maxHealth = 6;
+        this.maxHealth = 5;
         this.health = this.maxHealth;
         this.displayHealth = this.maxHealth;
         this.stalkSpeed = ENEMY_CFG.stalkSpeed * 0.6;
@@ -1768,7 +1801,7 @@
         this.width = ENEMY_CFG.width * 4;
         this.height = ENEMY_CFG.height * 4;
         this.hitRadius = ENEMY_CFG.hitRadius * 4;
-        this.maxHealth = 40;
+        this.maxHealth = 50;
         this.health = this.maxHealth;
         this.displayHealth = this.maxHealth;
         this.shadowOffsetY = -9;
@@ -1776,7 +1809,7 @@
         
         this.forms = ["rat", "bat", "snake", "spider", "boar"];
         this.currentForm = "rat";
-        this.formTimer = 5 + Math.random() * 10;
+        this.formTimer = 6 + Math.random() * 4;
         this.actionTimer = 0.75 + Math.random() * 0.75;
         
         this.sineTimer = Math.random() * TAU;
@@ -1790,8 +1823,9 @@
         this.rainbowAura = true;
         this.attacksPerformed = 0;
         this.tiredTimer = 0;
-        this.spawnChance = 0.15;
+        this.spawnChance = 0.3;
         this.formsUsed = ["rat"];
+        this.spawnedOnCurrentAction = false;
         
         this.applyForm("rat");
       }
@@ -1909,8 +1943,8 @@
           if (this.formTransitionTimer <= 0) {
             this.applyForm(this.nextForm);
             this.formsUsed.push(this.nextForm);
-            this.spawnChance = Math.min(0.5, this.spawnChance + 0.05);
-            this.formTimer = 5 + Math.random() * 10;
+            this.spawnChance = Math.min(0.6, this.spawnChance + 0.05);
+            this.formTimer = 6 + Math.random() * 5;
           }
           return;
         }
@@ -1962,6 +1996,10 @@
       }
 
       updateStalkState(dt, playerDistance, toPlayerDir, game) {
+        if (this.actionTimer > 0) {
+          this.spawnedOnCurrentAction = false;
+        }
+
         this.formTimer -= dt;
         if (this.formTimer <= 0) {
           this.formTransitionTimer = 0.8;
@@ -1986,7 +2024,8 @@
         }
 
         this.actionTimer -= dt;
-        if (this.actionTimer <= 0) {
+        if (this.actionTimer <= 0 && !this.spawnedOnCurrentAction) {
+          this.spawnedOnCurrentAction = true;
           this.actionTimer = 0.75 + Math.random() * 0.75;
           
           if (Math.random() < this.spawnChance) {
@@ -2062,7 +2101,8 @@
             const px = this.x + this.chargeDirection.x * 20;
             const py = this.y + this.chargeDirection.y * 20;
             const proj = new Projectile(px, py, this.chargeDirection.x * PROJECTILE_CFG.speed, this.chargeDirection.y * PROJECTILE_CFG.speed);
-            proj.scale = 2;
+            proj.scale = 3.12;
+            proj.piercePlayer = true;
             game.projectiles.push(proj);
             this.state = ENEMY_STATES.RECOVER;
             this.recoverTimer = this.recoverDuration;
@@ -2170,6 +2210,7 @@
         this.vy = vy;
         this.alive = true;
         this.scale = 1;
+        this.piercePlayer = false;
       }
       update(dt, game) {
         if (!this.alive) return;
@@ -2194,7 +2235,9 @@
             const reach = (game.player.width + game.player.height) * 0.25 + PROJECTILE_CFG.radius * this.scale;
             if (distSq <= reach * reach) {
               game.player.takeDamage(game);
-              this.alive = false;
+              if (!this.piercePlayer) {
+                this.alive = false;
+              }
             }
           }
         }
@@ -2334,6 +2377,8 @@
           alpha = clamp(1 - (this.age - this.life) / WEB_CFG.trapFadeTime, 0, 1);
         }
         ctx.save();
+        ctx.shadowColor = "rgba(255, 0, 0, 0.85)";
+        ctx.shadowBlur = 20;
         ctx.globalAlpha = alpha;
         ctx.translate(this.x, this.y);
         const visualScale = this.scale > 1 ? this.scale * 1.2 : this.scale;
@@ -2373,7 +2418,7 @@
               { delay: 1, enemies: ["snake"] },
               { delay: 8, enemies: ["snake", "snake", "rat"] },
               { delay: 22, enemies: ["snake", "rat", "rat", "rat", "bat"] },
-              { delay: 29, enemies: ["snake", "snake", "rat", "rat", "bat", "bat"] }
+              { delay: 29, enemies: ["snake", "snake", "rat", "bat", "bat"] }
             ] 
           },
           { 
@@ -2381,9 +2426,9 @@
             waves: [
               { delay: 1, enemies: ["spider", "spider"] },
               { delay: 8, enemies: ["spider", "spider", "spider", "snake"] },
-              { delay: 17, enemies: ["spider", "spider", "spider", "spider", "bat", "bat"] },
-              { delay: 24, enemies: ["spider", "spider", "spider", "spider"] },
-              { delay: 9, enemies: ["snake", "snake", "bat", "bat"] }
+              { delay: 17, enemies: ["spider", "spider", "spider", "bat", "bat"] },
+              { delay: 20, enemies: ["spider", "spider", "spider", "spider"] },
+              { delay: 8, enemies: ["snake", "snake", "bat", "bat"] }
             ] 
           },
           { 
@@ -2392,12 +2437,11 @@
               { delay: 1, enemies: ["spider", "spider", "bat", "bat"] },
               { delay: 14, enemies: ["boar", "snake"] },
               { delay: 16, enemies: ["boar", "boar", "boar"] },
-              { delay: 24, enemies: ["boar", "boar", "spider", "snake", "snake"] },
+              { delay: 24, enemies: ["boar", "boar", "spider", "spider", "snake"] },
               { delay: 45, enemies: ["boar", "spider"] },
-              { delay: 2, enemies: ["boar", "snake"] },
-              { delay: 2, enemies: ["spider", "bat"] },
-              { delay: 2, enemies: ["snake", "bat"] },
-              { delay: 10, enemies: ["boar", "boar"] }
+            { delay: 6, enemies: ["boar", "snake"] },
+            { delay: 6, enemies: ["spider", "bat"] },
+            { delay: 6, enemies: ["snake", "bat"] }
             ] 
           },
           { 
@@ -2443,10 +2487,20 @@
           }
           
           if (this.currentWave >= this.levels[this.currentLevel].waves.length) {
-            const allDead = this.game.enemies.length > 0 && this.game.enemies.every(e => !e.alive);
-            if (allDead) {
-              this.state = "completeDelay";
-              this.stateTimer = 1.0;
+            if (this.currentLevel === 5) {
+              const changelingAlive = this.game.enemies.some(
+                (enemy) => enemy.alive && enemy instanceof ChangelingBossEnemy
+              );
+              if (!changelingAlive) {
+                this.state = "completeDelay";
+                this.stateTimer = 0.5;
+              }
+            } else {
+              const allDead = this.game.enemies.length > 0 && this.game.enemies.every(e => !e.alive);
+              if (allDead) {
+                this.state = "completeDelay";
+                this.stateTimer = 0.5;
+              }
             }
           } else {
             const allDead = this.game.enemies.length > 0 && this.game.enemies.every(e => !e.alive);
@@ -2454,6 +2508,7 @@
               this.waveTimer = 1.0;
             }
           }
+
         } else if (this.state === "completeDelay") {
           this.stateTimer -= dt;
           if (this.stateTimer <= 0) {
@@ -2662,6 +2717,7 @@
         this.active = true;
         this.attackDir = { x: 0, y: -1 };
         this.attackHintShown = false;
+        this.crawlStartScale = TUTORIAL_CFG.crawlStartScale;
         this.crawlScale = TUTORIAL_CFG.crawlScale;
         this.crawlDuration = TUTORIAL_CFG.crawlDuration;
         this.slowDropRate = TUTORIAL_CFG.slowDropRate;
@@ -2716,11 +2772,8 @@
       }
 
       handleWaitDodge(realDt, player, input) {
-        if (this.tutorialTimeScale > this.crawlScale) {
-          this.tutorialTimeScale = Math.max(this.crawlScale, this.tutorialTimeScale - realDt * this.slowDropRate);
-        } else if (this.phaseTime > this.crawlDuration) {
-          this.tutorialTimeScale = 0;
-        }
+        const t = Math.min(1, this.phaseTime / this.crawlDuration);
+        this.tutorialTimeScale = this.crawlStartScale * (1 - t);
         this.textAlpha = Math.min(1, this.phaseTime * 3);
         if (input.pendingSwipe) {
           const swipe = input.pendingSwipe;
@@ -2750,11 +2803,8 @@
       }
 
       handleWaitHold(realDt, player, enemy, input) {
-        if (this.tutorialTimeScale > this.crawlScale) {
-          this.tutorialTimeScale = Math.max(this.crawlScale, this.tutorialTimeScale - realDt * this.slowDropRate);
-        } else if (this.phaseTime > this.crawlDuration) {
-          this.tutorialTimeScale = 0;
-        }
+        const t = Math.min(1, this.phaseTime / this.crawlDuration);
+        this.tutorialTimeScale = this.crawlStartScale * (1 - t);
         this.textAlpha = Math.min(1, this.phaseTime * 3);
         input.pendingSwipe = null;
         const nowSec = performance.now() * 0.001;
@@ -3277,7 +3327,7 @@
         const displayHpFrac = this.game.player.displayHealth / this.game.player.maxHealth;
 
         this.ctx.save();
-        this.ctx.fillStyle = "rgba(0, 0, 0, 0.6)";
+        this.ctx.fillStyle = "#000000";
         this.ctx.fillRect(hbX - 1, hbY - 1, hbWidth + 2, hbHeight + 2);
 
         this.ctx.fillStyle = "#ffffff";
@@ -3382,7 +3432,7 @@
 
         this.deathState = null;
         this.deathTimer = 0;
-        this.deathDelayDuration = 1.5;
+        this.deathDelayDuration = 0.5;
 
         window.addEventListener("resize", () => this.resize());
         this.resize();
@@ -3402,10 +3452,11 @@
       }
 
       setupTutorialEnemy() {
-        this.enemy = new RatEnemy(GAME_WIDTH * 0.5, 180);
+        this.enemy = new RatEnemy(GAME_WIDTH * 0.5, 200);
         this.enemies = [this.enemy];
         this.enemy.state = ENEMY_STATES.CHARGE;
         this.enemy.chargeDirection = { x: 0, y: 1 };
+        this.enemy.ignoreTutorialFirstAttackDamage = true;
       const tutorialSpinSign = this.enemy.chargeDirection.x >= 0 ? 1 : -1;
       this.enemy.chargeSpinAmount = this.enemy.baseChargeSpinAmount * tutorialSpinSign;
         this.enemy.chargeTimer = this.enemy.chargeDuration;
@@ -3453,8 +3504,9 @@
 
       resize() {
         const dpr = Math.max(1, window.devicePixelRatio || 1);
-        this.screen.width = window.innerWidth;
-        this.screen.height = window.innerHeight;
+        const rect = this.canvas.getBoundingClientRect();
+        this.screen.width = Math.max(1, rect.width);
+        this.screen.height = Math.max(1, rect.height);
         this.canvas.width = Math.floor(this.screen.width * dpr);
         this.canvas.height = Math.floor(this.screen.height * dpr);
         this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
